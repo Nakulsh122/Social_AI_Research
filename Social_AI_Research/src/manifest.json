@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Social AI Feed Detector",
+  "version": "1.0.3",
+  "description": "Research extension for studying AI-generated content in social media feeds. For consented participants only.",
+  "permissions": ["storage"],
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "host_permissions": [
+    "https://www.linkedin.com/*",
+    "https://abhi.dbackup.cloud/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.linkedin.com/*"],
+      "js": ["content/shared.js", "content/linkedin.js"],
+      "css": ["content/badge.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Social AI Feed Detector",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png"
+    }
+  }
+}

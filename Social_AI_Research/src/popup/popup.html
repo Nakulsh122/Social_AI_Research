@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <div id="setup-view" class="setup hidden">
+      <h1 class="setup-title">Social AI Feed Detector</h1>
+      <div class="setup-columns">
+        <div class="setup-col setup-left">
+          <h2 class="setup-subtitle">General Instructions</h2>
+          <ul class="setup-instructions">
+            <li><strong>How it works:</strong> The extension silently scans text on X (Twitter) and LinkedIn.</li>
+            <li><strong>Your Privacy:</strong> We do not track passwords, private messages, or external browsing history. Only public feed posts are scored.</li>
+          </ul>
+        </div>
+        <div class="setup-col setup-right">
+          <p class="setup-lede">
+            Enter your Participant ID to begin. You should have received this from
+            the study invitation.
+          </p>
+          <input
+            id="setup-input"
+            class="setup-input"
+            type="text"
+            spellcheck="false"
+            autocomplete="off"
+            placeholder="For testing: type 'control' or 'treatment'"
+          />
+          <div id="setup-error" class="setup-error"></div>
+          <button id="setup-submit" class="setup-submit">Continue</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Extra View (Treatment Group Only) -->
+    <div id="extra-view" class="setup hidden">
+      <h1 class="setup-title">Additional Instructions</h1>
+      <div class="setup-columns">
+        <div class="setup-col setup-left">
+          <div class="setup-image-placeholder">
+            <span>[Instructional Image Placeholder]</span>
+          </div>
+        </div>
+        <div class="setup-col setup-right">
+          <ul class="setup-instructions">
+            <li><strong>Special Instruction 1:</strong> You will see badges indicating AI content on your feed.</li>
+            <li><strong>Special Instruction 2:</strong> Please pay attention to the colors. You can edit these instructions later.</li>
+          </ul>
+          <button id="extra-submit" class="setup-submit" style="margin-top: 24px;">Got it, Continue</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Thanks View -->
+    <div id="thanks-view" class="setup hidden">
+      <h1 class="setup-title">You're all set!</h1>
+      <p class="setup-lede" style="text-align: center; max-width: 500px; margin: 0 auto;">
+        Thanks for taking part. Your Participant ID is linked.<br><br>
+        You can close this tab now — open X or LinkedIn and scroll your feed normally.<br>
+        Posts will be scored as you encounter them.
+      </p>
+    </div>
+
+    <div id="main-view" class="hidden">
+      <header>
+        <div class="title-row">
+          <h1>Social AI Feed Detector</h1>
+        </div>
+        <div id="stats" class="stats">Loading…</div>
+      </header>
+      <ul id="list" class="list"></ul>
+    </div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

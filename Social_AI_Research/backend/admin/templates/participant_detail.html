@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}{{ p.participantId }} — SAIR Admin{% endblock %}
+
+{% block content %}
+
+<a href="/admin/participants" class="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors mb-3">
+  <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+  All participants
+</a>
+
+<div class="mb-8">
+  <h1 class="text-2xl font-bold tracking-tight font-mono">{{ p.participantId }}</h1>
+  <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500 mt-2">
+    <span><span class="text-zinc-600">External ID</span> <span class="text-zinc-300">{{ p.externalId or '—' }}</span></span>
+    <span><span class="text-zinc-600">Role</span> <span class="text-zinc-300">{{ p.role }}</span></span>
+    <span><span class="text-zinc-600">Active</span> <span class="text-zinc-300">{{ 'yes' if p.active else 'no' }}</span></span>
+    <span><span class="text-zinc-600">Registered</span> <span class="text-zinc-300">{{ p.createdAt.strftime('%b %d, %Y · %H:%M') if p.createdAt else '—' }}</span></span>
+  </div>
+</div>
+
+{# Top metrics #}
+<div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+  <div class="rounded-xl border border-zinc-800/80 bg-zinc-900/50 p-5">
+    <div class="text-[10px] uppercase tracking-[0.12em] text-zinc-500 font-semibold">Observations</div>
+    <div class="text-2xl font-bold mt-2 tabular-nums">{{ "{:,}".format(p.observationCount) }}</div>
+  </div>
+  <div class="rounded-xl border border-zinc-800/80 bg-zinc-900/50 p-5">
+    <div class="text-[10px] uppercase tracking-[0.12em] text-zinc-500 font-semibold">Interactions</div>
+    <div class="text-2xl font-bold mt-2 tabular-nums">{{ "{:,}".format(p.interactionCount) }}</div>
+  </div>
+  <div class="rounded-xl border border-zinc-800/80 bg-zinc-900/50 p-5 relative overflow-hidden">
+    <div class="absolute top-0 left-0 w-1 h-full bg-human"></div>
+    <div class="pl-2">
+      <div class="text-[10px] uppercase tracking-[0.12em] text-zinc-500 font-semibold">Human</div>
+      <div class="text-2xl font-bold mt-2 tabular-nums text-human">{{ tier_counts.human }}</div>
+    </div>
+  </div>
+  <div class="rounded-xl border border-zinc-800/80 bg-zinc-900/50 p-5 relative overflow-hidden">
+    <div class="absolute top-0 left-0 w-1 h-full bg-mixed"></div>
+    <div class="pl-2">
+      <div class="text-[10px] uppercase tracking-[0.12em] text-zinc-500 font-semibold">Mixed</div>
+      <div class="text-2xl font-bold mt-2 tabular-nums text-mixed">{{ tier_counts.mixed }}</div>
+    </div>
+  </div>
+  <div class="rounded-xl border border-zinc-800/80 bg-zinc-900/50 p-5 relative overflow-hidden">
+    <div class="absolute top-0 left-0 w-1 h-full bg-ai"></div>
+    <div class="pl-2">
+      <div class="text-[10px] uppercase tracking-[0.12em] text-zinc-500 font-semibold">AI</div>
+      <div class="text-2xl font-bold mt-2 tabular-nums text-ai">{{ tier_counts.ai }}</div>
+    </div>
+  </div>
+</div>
+
+{# Recent observations #}
+<div class="rounded-xl border border-zinc-800/80 bg-zinc-900/50 overflow-hidden mb-6">
+  <div class="flex items-baseline justify-between px-5 py-4 border-b border-zinc-800">
+    <h2 class="text-sm font-semibold tracking-tight">Recent observations</h2>
+    <span class="text-xs text-zinc-500">Latest 50</span>
+  </div>
+  <div class="overflow-x-auto scrollbar-thin">
+    <table class="w-full text-sm">
+      <thead class="bg-zinc-900/40">
+        <tr class="text-left text-[10px] uppercase tracking-[0.1em] text-zinc-500 font-semibold">
+          <th class="px-5 py-3">Recorded</th>
+          <th class="px-5 py-3">Platform</th>
+          <th class="px-5 py-3">Author</th>
+          <th class="px-5 py-3">Tier</th>
+          <th class="px-5 py-3">Text preview</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-zinc-800/60">
+        {% for d in observations %}
+        <tr class="hover:bg-zinc-800/30 transition-colors">
+          <td class="px-5 py-3 text-zinc-400 whitespace-nowrap text-xs">{{ d.recordedAt.strftime('%b %d · %H:%M') if d.recordedAt else '—' }}</td>
+          <td class="px-5 py-3 text-zinc-300 text-xs">{{ d.platform }}</td>
+          <td class="px-5 py-3 text-zinc-200">{{ d.authorDisplayName or d.author or '—' }}</td>
+          <td class="px-5 py-3">
+            {% set tier = d.tier or 'unscored' %}
+            {% set tier_styles = {
+              'human': 'bg-human/10 text-human border-human/30',
+              'mixed': 'bg-mixed/10 text-mixed border-mixed/30',
+              'ai': 'bg-ai/10 text-ai border-ai/30',
+              'unscored': 'bg-zinc-700/40 text-zinc-400 border-zinc-700',
+            } %}
+            <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border {{ tier_styles[tier] }}">{{ tier }}</span>
+          </td>
+          <td class="px-5 py-3 text-zinc-400 text-xs leading-relaxed max-w-md">{{ (d.text or '')[:160] }}{% if d.text and d.text|length > 160 %}…{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="px-5 py-12 text-center text-sm text-zinc-500">No observations yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# Recent interactions #}
+<div class="rounded-xl border border-zinc-800/80 bg-zinc-900/50 overflow-hidden">
+  <div class="flex items-baseline justify-between px-5 py-4 border-b border-zinc-800">
+    <h2 class="text-sm font-semibold tracking-tight">Recent interactions</h2>
+    <span class="text-xs text-zinc-500">Latest 50</span>
+  </div>
+  <div class="overflow-x-auto scrollbar-thin">
+    <table class="w-full text-sm">
+      <thead class="bg-zinc-900/40">
+        <tr class="text-left text-[10px] uppercase tracking-[0.1em] text-zinc-500 font-semibold">
+          <th class="px-5 py-3">Recorded</th>
+          <th class="px-5 py-3">Platform</th>
+          <th class="px-5 py-3">Post ID</th>
+          <th class="px-5 py-3">Action</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-zinc-800/60">
+        {% for d in interactions %}
+        <tr class="hover:bg-zinc-800/30 transition-colors">
+          <td class="px-5 py-3 text-zinc-400 whitespace-nowrap text-xs">{{ d.recordedAt.strftime('%b %d · %H:%M') if d.recordedAt else '—' }}</td>
+          <td class="px-5 py-3 text-zinc-300 text-xs">{{ d.platform }}</td>
+          <td class="px-5 py-3 font-mono text-xs text-zinc-400 truncate max-w-xs">{{ d.postId }}</td>
+          <td class="px-5 py-3">
+            <span class="inline-block px-2 py-0.5 rounded-md bg-zinc-800 text-zinc-300 text-[11px] font-medium">{{ d.action }}</span>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="px-5 py-12 text-center text-sm text-zinc-500">No interactions yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

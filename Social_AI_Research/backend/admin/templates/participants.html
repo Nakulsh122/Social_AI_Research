@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Participants — SAIR Admin{% endblock %}
+
+{% block content %}
+
+<div class="flex flex-col md:flex-row md:items-end md:justify-between gap-2 mb-8">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Participants</h1>
+    <p class="text-sm text-zinc-500 mt-1">All enrolled participants and their activity totals.</p>
+  </div>
+  <p class="text-xs text-zinc-500 tabular-nums">
+    <span class="text-zinc-300 font-semibold">{{ total }}</span> total · page <span class="text-zinc-300 font-semibold">{{ page }}</span> of <span class="text-zinc-300 font-semibold">{{ total_pages }}</span>
+  </p>
+</div>
+
+<div class="rounded-xl border border-zinc-800/80 bg-zinc-900/50 overflow-hidden">
+  <div class="overflow-x-auto scrollbar-thin">
+    <table class="w-full text-sm">
+      <thead class="bg-zinc-900/80 border-b border-zinc-800">
+        <tr class="text-left text-[10px] uppercase tracking-[0.1em] text-zinc-500 font-semibold">
+          <th class="px-5 py-3">Participant ID</th>
+          <th class="px-5 py-3">External ID</th>
+          <th class="px-5 py-3">Role</th>
+          <th class="px-5 py-3">Registered</th>
+          <th class="px-5 py-3 text-right">Observations</th>
+          <th class="px-5 py-3 text-right">Interactions</th>
+          <th class="px-5 py-3">Last seen</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-zinc-800/60">
+        {% for r in rows %}
+        <tr class="hover:bg-zinc-800/30 transition-colors group">
+          <td class="px-5 py-3">
+            <a href="/admin/participants/{{ r.participantId }}" class="font-mono text-xs text-zinc-200 hover:text-rutgers-light transition-colors">{{ r.participantId }}</a>
+          </td>
+          <td class="px-5 py-3 text-zinc-400">{{ r.externalId or '—' }}</td>
+          <td class="px-5 py-3">
+            <span class="inline-flex px-2 py-0.5 rounded-md bg-zinc-800/80 text-zinc-400 text-[10px] uppercase tracking-wider font-semibold">{{ r.role }}</span>
+          </td>
+          <td class="px-5 py-3 text-zinc-400 whitespace-nowrap text-xs">
+            {{ r.createdAt.strftime('%b %d, %Y · %H:%M') if r.createdAt else '—' }}
+          </td>
+          <td class="px-5 py-3 text-right tabular-nums text-zinc-100 font-medium">{{ r.observationCount }}</td>
+          <td class="px-5 py-3 text-right tabular-nums text-zinc-100 font-medium">{{ r.interactionCount }}</td>
+          <td class="px-5 py-3 text-zinc-400 whitespace-nowrap text-xs">
+            {{ r.lastSeen.strftime('%b %d, %Y · %H:%M') if r.lastSeen else '—' }}
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="7" class="px-5 py-12 text-center text-sm text-zinc-500">
+            No participants have registered yet.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# Pager #}
+<div class="flex items-center justify-center gap-3 mt-6 text-sm text-zinc-500">
+  {% if page > 1 %}
+    <a href="?page={{ page - 1 }}&page_size={{ page_size }}"
+       class="px-3 py-1.5 rounded-md border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/60 hover:text-zinc-200 transition-colors">← Previous</a>
+  {% endif %}
+  <span class="tabular-nums">Page {{ page }} / {{ total_pages }}</span>
+  {% if page < total_pages %}
+    <a href="?page={{ page + 1 }}&page_size={{ page_size }}"
+       class="px-3 py-1.5 rounded-md border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/60 hover:text-zinc-200 transition-colors">Next →</a>
+  {% endif %}
+</div>
+
+{% endblock %}

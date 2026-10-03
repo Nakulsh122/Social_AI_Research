@@ -1,0 +1,41 @@
+.sair-badge {
+  display: block;
+  width: fit-content;
+  margin-left: auto;
+  padding: 4px 12px;
+
+  border-bottom-left-radius: 6px;
+
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  line-height: 1.2;
+  white-space: nowrap;
+
+  color: #fff;
+  background: #1a1a1a;
+
+  -webkit-font-smoothing: antialiased;
+  cursor: help;
+  user-select: none;
+}
+
+/* Defensive fallback for the rare case where the badge ends up as a direct
+   child of an X tweet article. Tweet articles use flexbox; without these
+   rules, the badge gets squeezed into a narrow column and stretched vertically.
+   The JS normally inserts into the content column where this rule isn't needed. */
+article[data-testid="tweet"] > .sair-badge {
+  grid-column: 1 / -1;     /* span all columns if grid */
+  align-self: flex-start;  /* don't stretch vertically if flex */
+  order: 999;              /* push to end of flex row */
+  flex-shrink: 0;
+}
+
+.sair-badge[data-tier="ai"]      { background: #f5535a; color: #fff; }
+.sair-badge[data-tier="mixed"]   { background: #fbbf24; color: #1a1a1a; }
+.sair-badge[data-tier="human"]   { background: #4ade80; color: #0a0a0a; }
+.sair-badge[data-tier="pending"] { background: #2a2a2a; color: #b0b0b0; font-weight: 500; }
+.sair-badge[data-tier="short"]   { background: #6b7280; color: #f3f4f6; font-weight: 500; }
+.sair-badge[data-tier="error"]   { background: rgba(248, 113, 113, 0.18); color: #c1393f; font-weight: 500; }

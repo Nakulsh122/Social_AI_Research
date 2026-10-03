@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}Observations — SAIR Admin{% endblock %}
+
+{% block content %}
+
+<div class="flex flex-col md:flex-row md:items-end md:justify-between gap-2 mb-6">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Observations</h1>
+    <p class="text-sm text-zinc-500 mt-1">Every post a participant has seen in their feed, joined with the Pangram score.</p>
+  </div>
+  <p class="text-xs text-zinc-500 tabular-nums">
+    <span class="text-zinc-300 font-semibold">{{ total }}</span> matching · page <span class="text-zinc-300 font-semibold">{{ page }}</span> of <span class="text-zinc-300 font-semibold">{{ total_pages }}</span>
+  </p>
+</div>
+
+{# Filters #}
+<form method="get" class="rounded-xl border border-zinc-800/80 bg-zinc-900/50 p-5 mb-5">
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
+
+    <label class="block md:col-span-2">
+      <span class="block text-[10px] uppercase tracking-[0.1em] text-zinc-500 font-semibold mb-1.5">Participant ID</span>
+      <input type="text" name="user_id" value="{{ filters.user_id or '' }}" placeholder="u-..."
+        class="w-full px-3 py-2 rounded-md bg-zinc-950/80 border border-zinc-800 text-zinc-100 placeholder-zinc-600 text-sm focus:outline-none focus:border-rutgers focus:ring-2 focus:ring-rutgers/30 transition-all"/>
+    </label>
+
+    <label class="block">
+      <span class="block text-[10px] uppercase tracking-[0.1em] text-zinc-500 font-semibold mb-1.5">Platform</span>
+      <select name="platform"
+        class="w-full px-3 py-2 rounded-md bg-zinc-950/80 border border-zinc-800 text-zinc-100 text-sm focus:outline-none focus:border-rutgers focus:ring-2 focus:ring-rutgers/30 transition-all">
+        <option value="">Any</option>
+        <option value="linkedin" {% if filters.platform == 'linkedin' %}selected{% endif %}>LinkedIn</option>
+        <option value="twitter" {% if filters.platform == 'twitter' %}selected{% endif %}>Twitter/X</option>
+      </select>
+    </label>
+
+    <label class="block">
+      <span class="block text-[10px] uppercase tracking-[0.1em] text-zinc-500 font-semibold mb-1.5">Since</span>
+      <input type="date" name="since" value="{{ filters.since or '' }}"
+        class="w-full px-3 py-2 rounded-md bg-zinc-950/80 border border-zinc-800 text-zinc-100 text-sm focus:outline-none focus:border-rutgers focus:ring-2 focus:ring-rutgers/30 transition-all" style="color-scheme: dark;"/>
+    </label>
+
+    <label class="block">
+      <span class="block text-[10px] uppercase tracking-[0.1em] text-zinc-500 font-semibold mb-1.5">Until</span>
+      <input type="date" name="until" value="{{ filters.until or '' }}"
+        class="w-full px-3 py-2 rounded-md bg-zinc-950/80 border border-zinc-800 text-zinc-100 text-sm focus:outline-none focus:border-rutgers focus:ring-2 focus:ring-rutgers/30 transition-all" style="color-scheme: dark;"/>
+    </label>
+
+  </div>
+
+  <div class="flex items-center gap-3 mt-4">
+    <button type="submit" class="px-4 py-2 rounded-md bg-rutgers hover:bg-rutgers-light text-white text-sm font-semibold transition-colors shadow-md shadow-rutgers/20">
+      Apply filters
+    </button>
+    <a href="/admin/observations" class="text-xs text-zinc-500 hover:text-zinc-300 uppercase tracking-wider font-medium transition-colors">Reset</a>
+  </div>
+</form>
+
+{# Table #}
+<div class="rounded-xl border border-zinc-800/80 bg-zinc-900/50 overflow-hidden">
+  <div class="overflow-x-auto scrollbar-thin">
+    <table class="w-full text-sm">
+      <thead class="bg-zinc-900/80 border-b border-zinc-800">
+        <tr class="text-left text-[10px] uppercase tracking-[0.1em] text-zinc-500 font-semibold">
+          <th class="px-5 py-3">Recorded</th>
+          <th class="px-5 py-3">Participant</th>
+          <th class="px-5 py-3">Platform</th>
+          <th class="px-5 py-3">Author</th>
+          <th class="px-5 py-3">Tier</th>
+          <th class="px-5 py-3">Text preview</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-zinc-800/60">
+        {% for d in docs %}
+        <tr class="hover:bg-zinc-800/30 transition-colors">
+          <td class="px-5 py-3 text-zinc-400 whitespace-nowrap text-xs">{{ d.recordedAt.strftime('%b %d · %H:%M:%S') if d.recordedAt else '—' }}</td>
+          <td class="px-5 py-3">
+            <a href="/admin/participants/{{ d.userId }}" class="font-mono text-xs text-zinc-300 hover:text-rutgers-light transition-colors">{{ d.userId }}</a>
+          </td>
+          <td class="px-5 py-3 text-zinc-300 text-xs">{{ d.platform }}</td>
+          <td class="px-5 py-3 text-zinc-200">{{ d.authorDisplayName or d.author or '—' }}</td>
+          <td class="px-5 py-3">
+            {% set tier = d.tier or 'unscored' %}
+            {% set tier_styles = {
+              'human': 'bg-human/10 text-human border-human/30',
+              'mixed': 'bg-mixed/10 text-mixed border-mixed/30',
+              'ai': 'bg-ai/10 text-ai border-ai/30',
+              'unscored': 'bg-zinc-700/40 text-zinc-400 border-zinc-700',
+            } %}
+            <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border {{ tier_styles[tier] }}">{{ tier }}</span>
+          </td>
+          <td class="px-5 py-3 text-zinc-400 text-xs leading-relaxed max-w-md">{{ (d.text or '')[:200] }}{% if d.text and d.text|length > 200 %}…{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="px-5 py-12 text-center text-sm text-zinc-500">No observations match these filters.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# Pager #}
+<div class="flex items-center justify-center gap-3 mt-6 text-sm text-zinc-500">
+  {% set qs = '&user_id=' ~ (filters.user_id or '') ~ '&platform=' ~ (filters.platform or '') ~ '&since=' ~ (filters.since or '') ~ '&until=' ~ (filters.until or '') ~ '&page_size=' ~ page_size %}
+  {% if page > 1 %}
+    <a href="?page={{ page - 1 }}{{ qs }}" class="px-3 py-1.5 rounded-md border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/60 hover:text-zinc-200 transition-colors">← Previous</a>
+  {% endif %}
+  <span class="tabular-nums">Page {{ page }} / {{ total_pages }}</span>
+  {% if page < total_pages %}
+    <a href="?page={{ page + 1 }}{{ qs }}" class="px-3 py-1.5 rounded-md border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-800/60 hover:text-zinc-200 transition-colors">Next →</a>
+  {% endif %}
+</div>
+
+{% endblock %}

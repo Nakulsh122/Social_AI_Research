@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy Policy — Social AI Feed Detector</title>
+    <meta
+      name="description"
+      content="Privacy policy for the Social AI Feed Detector Chrome extension, a research study by Prof. Kiran Garimella at Rutgers University."
+    />
+    <meta name="theme-color" content="#cc0033" />
+    <style>
+      :root {
+        --fg: #1a1a1a;
+        --fg-muted: #5a5a5a;
+        --fg-dim: #888;
+        --bg: #ffffff;
+        --bg-alt: #f7f7f8;
+        --border: #e5e5e7;
+        --accent: #cc0033;
+        --accent-soft: #fce7eb;
+        --max-width: 760px;
+      }
+
+      * { box-sizing: border-box; }
+
+      html {
+        scroll-behavior: smooth;
+        scroll-padding-top: 24px;
+      }
+
+      body {
+        margin: 0;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
+          Helvetica, Arial, sans-serif;
+        font-size: 16px;
+        line-height: 1.65;
+        color: var(--fg);
+        background: var(--bg);
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      .container {
+        max-width: var(--max-width);
+        margin: 0 auto;
+        padding: 56px 24px 96px;
+      }
+
+      header.page-header {
+        border-bottom: 1px solid var(--border);
+        padding-bottom: 32px;
+        margin-bottom: 40px;
+      }
+
+      .eyebrow {
+        display: inline-block;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--accent);
+        margin-bottom: 14px;
+      }
+
+      h1 {
+        font-size: clamp(28px, 4vw, 36px);
+        font-weight: 700;
+        line-height: 1.2;
+        margin: 0 0 12px;
+        letter-spacing: -0.01em;
+      }
+
+      .subtitle {
+        font-size: 17px;
+        color: var(--fg-muted);
+        margin: 0 0 20px;
+      }
+
+      .meta-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+        font-size: 14px;
+        color: var(--fg-dim);
+      }
+
+      .meta-row .meta-item strong {
+        color: var(--fg-muted);
+        font-weight: 600;
+      }
+
+      nav.toc {
+        background: var(--bg-alt);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 24px 28px;
+        margin: 0 0 48px;
+      }
+
+      nav.toc h2 {
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--fg-muted);
+        margin: 0 0 14px;
+      }
+
+      nav.toc ol {
+        margin: 0;
+        padding-left: 24px;
+        column-count: 2;
+        column-gap: 32px;
+      }
+
+      @media (max-width: 600px) {
+        nav.toc ol { column-count: 1; }
+      }
+
+      nav.toc li {
+        padding: 3px 0;
+        break-inside: avoid;
+      }
+
+      nav.toc a {
+        color: var(--fg);
+        text-decoration: none;
+        font-size: 14px;
+      }
+
+      nav.toc a:hover { color: var(--accent); text-decoration: underline; }
+
+      main section {
+        margin-bottom: 40px;
+        scroll-margin-top: 24px;
+      }
+
+      h2 {
+        font-size: 22px;
+        font-weight: 700;
+        line-height: 1.3;
+        margin: 0 0 16px;
+        letter-spacing: -0.005em;
+      }
+
+      h2 .num {
+        color: var(--fg-dim);
+        font-weight: 500;
+        margin-right: 10px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      h3 {
+        font-size: 16px;
+        font-weight: 600;
+        margin: 28px 0 10px;
+        color: var(--fg);
+      }
+
+      p {
+        margin: 0 0 16px;
+        color: var(--fg);
+      }
+
+      ul, ol.body-list {
+        margin: 0 0 16px;
+        padding-left: 22px;
+      }
+
+      ul li, ol.body-list li {
+        padding: 4px 0;
+        color: var(--fg);
+      }
+
+      strong { font-weight: 600; }
+
+      a {
+        color: var(--accent);
+        text-decoration: none;
+        border-bottom: 1px solid transparent;
+        transition: border-color 0.15s ease;
+      }
+      a:hover { border-bottom-color: var(--accent); }
+
+      .callout {
+        background: var(--bg-alt);
+        border-left: 3px solid var(--accent);
+        padding: 16px 20px;
+        margin: 24px 0;
+        border-radius: 0 6px 6px 0;
+      }
+      .callout p:last-child { margin-bottom: 0; }
+
+      footer.page-footer {
+        margin-top: 64px;
+        padding-top: 32px;
+        border-top: 1px solid var(--border);
+        font-size: 13px;
+        color: var(--fg-dim);
+      }
+
+      footer.page-footer p { margin: 0 0 6px; }
+
+      @media print {
+        :root {
+          --fg: #000;
+          --fg-muted: #333;
+          --fg-dim: #555;
+          --accent: #000;
+        }
+        body { font-size: 11pt; line-height: 1.5; }
+        .container { max-width: 100%; padding: 0; }
+        nav.toc { page-break-after: always; }
+        main section { page-break-inside: avoid; }
+        a { color: inherit; border: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <header class="page-header">
+        <span class="eyebrow">Research Study</span>
+        <h1>Privacy Policy</h1>
+        <p class="subtitle">Social AI Feed Detector Chrome Extension</p>
+        <div class="meta-row">
+          <span class="meta-item"><strong>Effective date:</strong> 27 May 2026</span>
+          <span class="meta-item"><strong>Last updated:</strong> 27 May 2026</span>
+        </div>
+      </header>
+
+      <nav class="toc" aria-label="Table of contents">
+        <h2>Contents</h2>
+        <ol>
+          <li><a href="#s1">About this Privacy Policy</a></li>
+          <li><a href="#s2">Who we are</a></li>
+          <li><a href="#s3">Who can use the Extension</a></li>
+          <li><a href="#s4">Information we collect</a></li>
+          <li><a href="#s5">How information is collected</a></li>
+          <li><a href="#s6">Why we collect this information</a></li>
+          <li><a href="#s7">Third parties</a></li>
+          <li><a href="#s8">Where your data is stored</a></li>
+          <li><a href="#s9">Who has access to your data</a></li>
+          <li><a href="#s10">Data retention</a></li>
+          <li><a href="#s11">Your rights</a></li>
+          <li><a href="#s12">Security</a></li>
+          <li><a href="#s13">Children</a></li>
+          <li><a href="#s14">International users</a></li>
+          <li><a href="#s15">Changes to this Privacy Policy</a></li>
+          <li><a href="#s16">Contact</a></li>
+        </ol>
+      </nav>
+
+      <main>
+        <section id="s1">
+          <h2><span class="num">1.</span>About this Privacy Policy</h2>
+          <p>
+            This Privacy Policy describes how the &ldquo;Social AI Feed Detector&rdquo;
+            Chrome extension (the &ldquo;Extension&rdquo;) collects, uses, stores,
+            and protects information from consented research participants. The
+            Extension is part of an academic research study conducted by
+            Prof. Kiran Garimella and research collaborators at Rutgers University.
+          </p>
+          <p>
+            This policy applies only to data collected through the Extension. It
+            does not apply to data that X (formerly Twitter), LinkedIn, Pangram,
+            or any other third party may independently collect about you outside
+            of this Extension.
+          </p>
+        </section>
+
+        <section id="s2">
+          <h2><span class="num">2.</span>Who we are</h2>
+          <p>The Extension is developed and operated by:</p>
+          <ul>
+            <li>Prof. Kiran Garimella, Rutgers University</li>
+            <li>Research collaborators on the project listed above</li>
+          </ul>
+          <p>
+            The study has been reviewed and approved by the Rutgers University
+            Institutional Review Board.
+          </p>
+        </section>
+
+        <section id="s3">
+          <h2><span class="num">3.</span>Who can use the Extension</h2>
+          <p>
+            The Extension is intended exclusively for consented research
+            participants. To use it, you must:
+          </p>
+          <ul>
+            <li>Be at least 18 years of age</li>
+            <li>Have received a unique Participant ID through an authorized study invitation</li>
+            <li>Have completed the study's informed consent process before installing</li>
+            <li>Provide your Participant ID through the Extension's setup screen on first use</li>
+          </ul>
+          <p>
+            The Extension cannot function without a Participant ID. Installing
+            the Extension without being enrolled in the study is not its
+            intended use, and no scientific data will be collected from such
+            installations beyond what is necessary to identify them as
+            non-enrolled.
+          </p>
+        </section>
+
+        <section id="s4">
+          <h2><span class="num">4.</span>Information we collect</h2>
+          <p>
+            When you browse your X (formerly Twitter) or LinkedIn feed with the
+            Extension installed, the Extension reads the publicly displayed
+            content of posts that appear in your feed and submits the data
+            described below to our research server.
+          </p>
+
+          <h3>Post information</h3>
+          <ul>
+            <li>The text of public feed posts that are at least 250 characters in length</li>
+            <li>The post's URL where available</li>
+            <li>The post author's publicly displayed username/handle, display name, professional headline, verified-account status (X) or connection degree (LinkedIn)</li>
+            <li>The post's publicly displayed engagement metrics: likes, comments, reposts/retweets, replies, and views (whichever apply)</li>
+            <li>The platform (X or LinkedIn) and the post's platform-specific identifier</li>
+            <li>The timestamp at which the Extension first observed the post in your feed</li>
+            <li>The AI-content classification returned by the third-party detection service</li>
+          </ul>
+
+          <h3>Participant identity</h3>
+          <ul>
+            <li>The anonymous Participant ID you provided during setup</li>
+            <li>A unique randomly generated authentication token used by the Extension to communicate with our research server</li>
+          </ul>
+
+          <h3>Technical metadata</h3>
+          <ul>
+            <li>The IP address from which the Extension first registered with our server (used only for abuse prevention at registration; not linked to your scientific data thereafter)</li>
+            <li>Server-side timestamps when records were submitted</li>
+          </ul>
+
+          <h3>We do NOT collect</h3>
+          <ul>
+            <li>Private or direct messages on X or LinkedIn</li>
+            <li>Posts, comments, or drafts you author yourself</li>
+            <li>Your X or LinkedIn account credentials, passwords, or session tokens</li>
+            <li>Your browsing history outside of x.com, twitter.com, and linkedin.com</li>
+            <li>Email addresses, real names, phone numbers, or other personally identifiable information beyond the Participant ID you provide</li>
+            <li>Information from any website other than x.com, twitter.com, and linkedin.com</li>
+          </ul>
+        </section>
+
+        <section id="s5">
+          <h2><span class="num">5.</span>How information is collected</h2>
+          <p>
+            The Extension runs in your browser only when you visit x.com,
+            twitter.com, or linkedin.com. While you are scrolling your feed on
+            these sites, content scripts read the publicly visible text of
+            posts that come into view. Posts that meet the 250-character
+            minimum are sent to the research backend along with the metadata
+            listed in Section 4. The backend forwards each post's text to
+            Pangram (described in Section 7) for AI-content scoring and stores
+            the result.
+          </p>
+          <p>
+            No data is collected from any other website. The Extension does
+            not run on pages outside the three domains listed above.
+          </p>
+        </section>
+
+        <section id="s6">
+          <h2><span class="num">6.</span>Why we collect this information</h2>
+          <p>
+            Information is collected solely for the academic research study
+            described in Section 1. Specifically, the data is used to:
+          </p>
+          <ul>
+            <li>Measure the prevalence of AI-generated content in social media feeds</li>
+            <li>Study how users engage with AI-generated content compared to human-generated content</li>
+            <li>Inform aggregated, anonymized findings published in academic journals and conference proceedings</li>
+          </ul>
+          <p>
+            Your data will not be used for advertising, marketing, profiling,
+            commercial purposes, or sale to any third party.
+          </p>
+        </section>
+
+        <section id="s7">
+          <h2><span class="num">7.</span>Third parties</h2>
+          <p>Two third parties process data on behalf of the research:</p>
+          <ul>
+            <li>
+              <strong>Pangram</strong>
+              (<a href="https://pangram.com" target="_blank" rel="noopener noreferrer">pangram.com</a>)
+              — a United States–based AI-content detection service. We send the text of feed posts to Pangram, which returns a classification (Human, Mixed, AI, or AI-Assisted) and supporting analysis. Pangram's processing of this text is governed by their own Privacy Policy.
+            </li>
+            <li>
+              <strong>Rutgers University infrastructure</strong>
+              — the research backend service and database are hosted on Rutgers-managed servers.
+            </li>
+          </ul>
+          <p>
+            We do not share, sell, rent, or transfer your data to any third
+            party other than as required to operate the research backend and
+            obtain AI-content classifications.
+          </p>
+        </section>
+
+        <section id="s8">
+          <h2><span class="num">8.</span>Where your data is stored</h2>
+          <p>
+            All study data is stored in a MongoDB database hosted on Rutgers
+            University infrastructure located in the United States. Access to
+            the server is restricted to authorized members of the research team.
+          </p>
+        </section>
+
+        <section id="s9">
+          <h2><span class="num">9.</span>Who has access to your data</h2>
+          <p>Identified data is accessible to:</p>
+          <ul>
+            <li>The principal investigator and named research collaborators on the study</li>
+            <li>Rutgers University personnel responsible for research-data security and IRB oversight, where required</li>
+          </ul>
+          <p>
+            Aggregated and anonymized findings may be shared in academic
+            publications, presentations, and educational materials.
+            Individual-level data, including any data tied to a Participant ID,
+            is not published.
+          </p>
+        </section>
+
+        <section id="s10">
+          <h2><span class="num">10.</span>Data retention</h2>
+          <p>
+            Study data is retained for the duration of the research study and
+            for a publication period thereafter, as defined by the project's
+            IRB-approved protocol. After the retention period, data is either
+            anonymized for archival or deleted.
+          </p>
+        </section>
+
+        <section id="s11">
+          <h2><span class="num">11.</span>Your rights</h2>
+          <p>As a research participant, you have the right to:</p>
+          <ul>
+            <li><strong>Access</strong>: request a copy of the data we hold about your Participant ID</li>
+            <li><strong>Correction</strong>: request correction of inaccurate data</li>
+            <li><strong>Deletion</strong>: request deletion of your data</li>
+            <li><strong>Withdrawal</strong>: withdraw from the study and stop further data collection at any time</li>
+          </ul>
+          <div class="callout">
+            <p>
+              To exercise these rights, contact the research team using the
+              contact details provided in your study invitation, and include
+              your Participant ID in your request. We will respond within
+              30&nbsp;days.
+            </p>
+          </div>
+          <p>
+            You may stop further data collection at any time by removing the
+            Extension from <code>chrome://extensions</code>. Uninstalling stops
+            new data from being collected but does not automatically delete
+            data we already hold; for deletion, contact the research team using
+            the channel above.
+          </p>
+        </section>
+
+        <section id="s12">
+          <h2><span class="num">12.</span>Security</h2>
+          <p>We take the following measures to protect collected data:</p>
+          <ul>
+            <li>All communication between the Extension and our research server occurs over HTTPS</li>
+            <li>Server access is restricted to authorized researchers via SSH key authentication</li>
+            <li>Your authentication token is stored locally in your browser and on our authenticated server only</li>
+            <li>Rate limits and abuse-prevention measures are applied to the research server's endpoints</li>
+          </ul>
+          <p>
+            No system is perfectly secure. While we follow standard
+            research-data security practices, we cannot guarantee absolute
+            security.
+          </p>
+        </section>
+
+        <section id="s13">
+          <h2><span class="num">13.</span>Children</h2>
+          <p>
+            The Extension is not intended for, and we do not knowingly collect
+            data from, individuals under 18 years of age. If you become aware
+            that a person under 18 has installed the Extension, please contact
+            the research team so that their data may be deleted.
+          </p>
+        </section>
+
+        <section id="s14">
+          <h2><span class="num">14.</span>International users</h2>
+          <p>
+            The Extension is intended for participants in a research study
+            conducted in the United States. Data collected by the Extension is
+            transferred to and stored in the United States. By using the
+            Extension, you understand that your data will be processed in the
+            United States.
+          </p>
+        </section>
+
+        <section id="s15">
+          <h2><span class="num">15.</span>Changes to this Privacy Policy</h2>
+          <p>
+            We may update this policy from time to time as the study evolves
+            or in response to regulatory, technical, or organizational changes.
+            Material changes will be communicated to enrolled participants.
+            The &ldquo;Effective date&rdquo; and &ldquo;Last updated&rdquo; at
+            the top of this policy reflect when it was last revised.
+          </p>
+        </section>
+
+        <section id="s16">
+          <h2><span class="num">16.</span>Contact</h2>
+          <p>
+            For questions about this Privacy Policy, the study, or to exercise
+            the rights described in Section 11, contact the research team
+            using the channel provided in your study invitation.
+          </p>
+          <p>
+            For questions about your rights as a research participant or to
+            report a concern about the research, contact the Rutgers University
+            Institutional Review Board through the contact channels published
+            on the Rutgers Office of Research Regulatory Affairs website.
+          </p>
+        </section>
+      </main>
+
+      <footer class="page-footer">
+        <p>
+          Social AI Feed Detector is an academic research study conducted by
+          Prof. Kiran Garimella at Rutgers University.
+        </p>
+        <p>This privacy policy was last updated on 27 May 2026.</p>
+      </footer>
+    </div>
+  </body>
+</html>

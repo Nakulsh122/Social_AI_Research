@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% block title %}Overview — SAIR Admin{% endblock %}
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+
+<div class="flex flex-col md:flex-row md:items-end md:justify-between gap-2 mb-8">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight">Overview</h1>
+    <p class="text-sm text-zinc-500 mt-1">A live snapshot of the SAIR research dataset.</p>
+  </div>
+  <p class="text-xs text-zinc-600 uppercase tracking-[0.1em]">Auto-refreshes when you reload</p>
+</div>
+
+{# ─────────── Top metrics ─────────── #}
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  {% for label, value, icon in [
+    ('Participants', counts.participants, 'people'),
+    ('Observations', counts.observations, 'eye'),
+    ('Interactions', counts.interactions, 'hand'),
+    ('Unique scored posts', counts.scored_posts, 'doc'),
+  ] %}
+  <div class="relative rounded-xl border border-zinc-800/80 bg-zinc-900/50 p-5 overflow-hidden group hover:border-zinc-700/80 transition-colors">
+    <div class="text-[10px] uppercase tracking-[0.12em] text-zinc-500 font-semibold">{{ label }}</div>
+    <div class="text-3xl font-bold mt-2 tracking-tight tabular-nums">{{ "{:,}".format(value) }}</div>
+    <div class="absolute -bottom-4 -right-4 w-24 h-24 rounded-full bg-rutgers/5 blur-2xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
+  </div>
+  {% endfor %}
+</div>
+
+{# ─────────── Charts ─────────── #}
+<div class="grid grid-cols-1 lg:grid-cols-5 gap-4 mb-6">
+
+  <div class="lg:col-span-2 rounded-xl border border-zinc-800/80 bg-zinc-900/50 p-5">
+    <div class="flex items-baseline justify-between mb-4">
+      <h2 class="text-sm font-semibold tracking-tight">Score distribution</h2>
+      <span class="text-xs text-zinc-500">Across all observations</span>
+    </div>
+    <div class="relative h-[260px]">
+      <canvas id="distChart"></canvas>
+    </div>
+  </div>
+
+  <div class="lg:col-span-3 rounded-xl border border-zinc-800/80 bg-zinc-900/50 p-5">
+    <div class="flex items-baseline justify-between mb-4">
+      <h2 class="text-sm font-semibold tracking-tight">Daily observations</h2>
+      <span class="text-xs text-zinc-500">Last 30 days</span>
+    </div>
+    <div class="relative h-[260px]">
+      <canvas id="dayChart"></canvas>
+    </div>
+  </div>
+
+</div>
+
+{# ─────────── Tier breakdown ─────────── #}
+{% set total_scored = distribution.human + distribution.mixed + distribution.ai %}
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+
+  <div class="rounded-xl border border-zinc-800/80 bg-zinc-900/50 p-5 relative overflow-hidden">
+    <div class="absolute top-0 left-0 w-1 h-full bg-human"></div>
+    <div class="pl-2">
+      <div class="text-[10px] uppercase tracking-[0.12em] text-zinc-500 font-semibold">Human</div>
+      <div class="text-2xl font-bold mt-2 tabular-nums text-human">{{ "{:,}".format(distribution.human) }}</div>
+      <div class="text-xs text-zinc-500 mt-1 tabular-nums">{% if total_scored %}{{ "%.1f"|format(distribution.human / total_scored * 100) }}%{% else %}—{% endif %}</div>
+    </div>
+  </div>
+
+  <div class="rounded-xl border border-zinc-800/80 bg-zinc-900/50 p-5 relative overflow-hidden">
+    <div class="absolute top-0 left-0 w-1 h-full bg-mixed"></div>
+    <div class="pl-2">
+      <div class="text-[10px] uppercase tracking-[0.12em] text-zinc-500 font-semibold">Mixed</div>
+      <div class="text-2xl font-bold mt-2 tabular-nums text-mixed">{{ "{:,}".format(distribution.mixed) }}</div>
+      <div class="text-xs text-zinc-500 mt-1 tabular-nums">{% if total_scored %}{{ "%.1f"|format(distribution.mixed / total_scored * 100) }}%{% else %}—{% endif %}</div>
+    </div>
+  </div>
+
+  <div class="rounded-xl border border-zinc-800/80 bg-zinc-900/50 p-5 relative overflow-hidden">
+    <div class="absolute top-0 left-0 w-1 h-full bg-ai"></div>
+    <div class="pl-2">
+      <div class="text-[10px] uppercase tracking-[0.12em] text-zinc-500 font-semibold">AI</div>
+      <div class="text-2xl font-bold mt-2 tabular-nums text-ai">{{ "{:,}".format(distribution.ai) }}</div>
+      <div class="text-xs text-zinc-500 mt-1 tabular-nums">{% if total_scored %}{{ "%.1f"|format(distribution.ai / total_scored * 100) }}%{% else %}—{% endif %}</div>
+    </div>
+  </div>
+
+  <div class="rounded-xl border border-zinc-800/80 bg-zinc-900/50 p-5 relative overflow-hidden">
+    <div class="absolute top-0 left-0 w-1 h-full bg-zinc-700"></div>
+    <div class="pl-2">
+      <div class="text-[10px] uppercase tracking-[0.12em] text-zinc-500 font-semibold">Unscored</div>
+      <div class="text-2xl font-bold mt-2 tabular-nums text-zinc-400">{{ "{:,}".format(distribution.unscored) }}</div>
+      <div class="text-xs text-zinc-500 mt-1">—</div>
+    </div>
+  </div>
+
+</div>
+
+{# ─────────── Exports ─────────── #}
+<div class="rounded-xl border border-zinc-800/80 bg-zinc-900/50 p-5">
+  <div class="flex items-baseline justify-between mb-4">
+    <h2 class="text-sm font-semibold tracking-tight">Exports</h2>
+    <span class="text-xs text-zinc-500">Streamed downloads</span>
+  </div>
+  <div class="flex flex-wrap gap-2">
+    <a href="/admin/export/observations.csv"
+       class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-rutgers/10 border border-rutgers/30 text-rutgers-light hover:bg-rutgers hover:text-white hover:border-rutgers text-sm font-medium transition-colors">
+      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      observations.csv
+    </a>
+    <a href="/admin/export/interactions.csv"
+       class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-rutgers/10 border border-rutgers/30 text-rutgers-light hover:bg-rutgers hover:text-white hover:border-rutgers text-sm font-medium transition-colors">
+      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      interactions.csv
+    </a>
+    <a href="/admin/export/full.json"
+       class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-rutgers/10 border border-rutgers/30 text-rutgers-light hover:bg-rutgers hover:text-white hover:border-rutgers text-sm font-medium transition-colors">
+      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      full_export.json
+    </a>
+  </div>
+</div>
+
+<script>
+  const dist = {{ distribution | tojson }};
+  const perDay = {{ per_day | tojson }};
+
+  Chart.defaults.font.family = "'Inter', -apple-system, system-ui, sans-serif";
+  Chart.defaults.font.size = 11;
+  Chart.defaults.color = '#71717a';
+
+  const tickColor = '#71717a';
+  const gridColor = 'rgba(63, 63, 70, 0.4)';
+
+  new Chart(document.getElementById('distChart'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Human', 'Mixed', 'AI', 'Unscored'],
+      datasets: [{
+        data: [dist.human, dist.mixed, dist.ai, dist.unscored],
+        backgroundColor: ['#2fb344', '#f59f00', '#f03e3e', '#3f3f46'],
+        borderColor: '#18181b',
+        borderWidth: 2,
+        hoverOffset: 8,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: '68%',
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: { padding: 14, boxWidth: 8, boxHeight: 8, usePointStyle: true, pointStyle: 'circle' },
+        },
+      },
+    },
+  });
+
+  new Chart(document.getElementById('dayChart'), {
+    type: 'line',
+    data: {
+      labels: perDay.map(p => p.date),
+      datasets: [{
+        label: 'Observations',
+        data: perDay.map(p => p.count),
+        borderColor: '#e6204c',
+        backgroundColor: (ctx) => {
+          const { chart } = ctx;
+          const { ctx: c, chartArea } = chart;
+          if (!chartArea) return 'rgba(204,0,51,0.15)';
+          const gradient = c.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+          gradient.addColorStop(0, 'rgba(204,0,51,0.30)');
+          gradient.addColorStop(1, 'rgba(204,0,51,0.00)');
+          return gradient;
+        },
+        fill: true,
+        tension: 0.35,
+        borderWidth: 2,
+        pointRadius: 0,
+        pointHoverRadius: 5,
+        pointHoverBackgroundColor: '#e6204c',
+        pointHoverBorderColor: '#fff',
+        pointHoverBorderWidth: 2,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
+      scales: {
+        y: { beginAtZero: true, grid: { color: gridColor, drawBorder: false }, ticks: { color: tickColor, precision: 0 } },
+        x: { grid: { display: false }, ticks: { color: tickColor, maxRotation: 0, autoSkipPadding: 20 } },
+      },
+    },
+  });
+</script>
+
+{% endblock %}
