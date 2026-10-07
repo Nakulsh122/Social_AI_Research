@@ -95,6 +95,7 @@ class ObservationIn(BaseModel):
     postedAtRelative: str | None = None
     engagement: Engagement | None = None
     seenAt: int | None = None
+    badgeShown: bool | None = None
 
 
 class InteractionIn(BaseModel):

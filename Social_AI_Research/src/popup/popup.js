@@ -17,18 +17,14 @@ function showMain() {
 function showThanks() {
   $('#setup-view').classList.add('hidden');
   $('#main-view').classList.add('hidden');
+  $('#extra-view')?.classList.add('hidden');
   $('#thanks-view').classList.remove('hidden');
 }
-
 // chrome.tabs.getCurrent() returns the Tab object when running inside a tab
 // (the auto-opened setup page), or undefined when running inside the action
 // popup. Lets us pick the right post-setup view.
 async function isRunningInTab() {
   try {
-    if (typeof chrome === 'undefined' || !chrome.tabs) {
-      document.body.classList.add('is-tab');
-      return true; // Force tab view for local HTML testing
-    }
     const tab = await chrome.tabs.getCurrent();
     const inTab = !!tab;
     if (inTab) document.body.classList.add('is-tab');
@@ -39,11 +35,15 @@ async function isRunningInTab() {
 }
 
 async function getStoredExternalId() {
-  if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.local) {
-    return '';
-  }
   const r = await chrome.storage.local.get(EXT_ID_KEY);
   return (r[EXT_ID_KEY] || '').trim();
+}
+
+function showExtra() {
+  $('#setup-view').classList.add('hidden');
+  $('#thanks-view').classList.add('hidden');
+  $('#main-view').classList.add('hidden');
+  $('#extra-view').classList.remove('hidden');
 }
 
 async function submitSetup() {
@@ -59,6 +59,7 @@ async function submitSetup() {
   }
   btn.disabled = true;
   btn.textContent = 'Linking…';
+
   try {
     await chrome.storage.local.set({ [EXT_ID_KEY]: value });
     const res = await new Promise((resolve) =>
@@ -67,15 +68,20 @@ async function submitSetup() {
     if (!res || !res.ok) {
       throw new Error((res && res.error) || 'unknown error');
     }
-    // In the auto-opened tab: show a thanks page and stop here so we don't
-    // pull data the participant didn't ask to see. In the popup dropdown:
-    // flip to the normal observations view as before.
-    if (await isRunningInTab()) {
-      showThanks();
+
+    const group = res.group || 'control'; // Default to control if missing
+    console.log("🌐 [LIVE SERVER] Participant assigned to group:", group.toUpperCase());
+    
+    if (group === 'treatment') {
+      showExtra();
     } else {
-      showMain();
-      load();
-      startAutoRefresh();
+      if (await isRunningInTab()) {
+        showThanks();
+      } else {
+        showMain();
+        load();
+        startAutoRefresh();
+      }
     }
   } catch (e) {
     errBox.textContent = `Could not link: ${e?.message || e}. Check the ID and try again.`;
@@ -83,6 +89,17 @@ async function submitSetup() {
     btn.textContent = 'Continue';
   }
 }
+
+// Extra View Continue Button
+$('#extra-submit')?.addEventListener('click', async () => {
+  if (await isRunningInTab()) {
+    showThanks();
+  } else {
+    showMain();
+    load();
+    startAutoRefresh();
+  }
+});
 
 function fmtNum(n) {
   if (n == null) return '—';

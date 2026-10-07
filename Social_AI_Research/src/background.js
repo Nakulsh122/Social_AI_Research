@@ -112,7 +112,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     tokenPromise = null;
     chrome.storage.local.remove(TOKEN_KEY).then(() => {
       ensureToken()
-        .then((t) => sendResponse({ ok: true, participantId: t.participantId }))
+        .then((t) => sendResponse({ ok: true, participantId: t.participantId, group: t.group }))
         .catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
     });
     return true;
@@ -294,10 +294,12 @@ async function recordObservation(post) {
       authorPremium: typeof post.authorPremium === 'boolean' ? post.authorPremium : null,
       authorHeadline: post.authorHeadline || null,
       authorConnectionDegree: post.authorConnectionDegree || null,
+      isPromoted: typeof post.isPromoted === 'boolean' ? post.isPromoted : null,
       postedAt: post.postedAt || null,
       postedAtRelative: post.postedAtRelative || null,
       engagement: post.engagement || null,
       seenAt: post.seenAt || null,
+      badgeShown: typeof post.badgeShown === 'boolean' ? post.badgeShown : null,
     }),
   });
 }

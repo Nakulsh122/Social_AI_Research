@@ -11,6 +11,7 @@
   chrome.runtime.sendMessage({ type: 'GET_GROUP' }, (res) => {
     if (chrome.runtime.lastError) return; // SW not ready yet; will sync on first SCORE_RESULT
     if (res && res.group === 'control') showBadges = false;
+    console.log('🧪 [SAIR] LinkedIn Content Script loaded. Group:', res?.group || 'unknown', '| Showing Badges:', showBadges);
   });
 
   // Code points, not UTF-16 code units — matches Python's len() on the backend.
@@ -368,6 +369,7 @@
       text: body,
       engagement: extractEngagement(item),
       seenAt: Date.now(),
+      badgeShown: showBadges,
     };
     log('captured:', post.author, '·',
       'likes=' + post.engagement.likes,
@@ -432,7 +434,10 @@
   }
 
   function paintBadge(item) {
-    if (!showBadges) return;
+    if (!showBadges) {
+      removeBadge(item);
+      return;
+    }
     const key = getOrComputeKey(item);
     if (!key) { removeBadge(item); return; }
     const rec = scored.get(key);
