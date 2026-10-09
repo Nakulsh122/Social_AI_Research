@@ -3,14 +3,21 @@
 
 {% block content %}
 
-<div class="flex flex-col md:flex-row md:items-end md:justify-between gap-2 mb-8">
+<div class="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-8">
   <div>
     <h1 class="text-2xl font-bold tracking-tight">Participants</h1>
     <p class="text-sm text-zinc-500 mt-1">All enrolled participants and their activity totals.</p>
   </div>
-  <p class="text-xs text-zinc-500 tabular-nums">
-    <span class="text-zinc-300 font-semibold">{{ total }}</span> total · page <span class="text-zinc-300 font-semibold">{{ page }}</span> of <span class="text-zinc-300 font-semibold">{{ total_pages }}</span>
-  </p>
+  <div class="flex flex-col items-end gap-3">
+    <div class="flex gap-2 text-sm">
+      <a href="/admin/participants" class="px-3 py-1 rounded-md border {% if not filters.group %}bg-zinc-800 border-zinc-700 text-white{% else %}border-zinc-800 text-zinc-400 hover:text-white{% endif %}">All</a>
+      <a href="/admin/participants?group=control" class="px-3 py-1 rounded-md border {% if filters.group == 'control' %}bg-zinc-800 border-zinc-700 text-white{% else %}border-zinc-800 text-zinc-400 hover:text-white{% endif %}">Control</a>
+      <a href="/admin/participants?group=treatment" class="px-3 py-1 rounded-md border {% if filters.group == 'treatment' %}bg-zinc-800 border-zinc-700 text-white{% else %}border-zinc-800 text-zinc-400 hover:text-white{% endif %}">Treatment</a>
+    </div>
+    <p class="text-xs text-zinc-500 tabular-nums">
+      <span class="text-zinc-300 font-semibold">{{ total }}</span> total · page <span class="text-zinc-300 font-semibold">{{ page }}</span> of <span class="text-zinc-300 font-semibold">{{ total_pages }}</span>
+    </p>
+  </div>
 </div>
 
 <div class="rounded-xl border border-zinc-800/80 bg-zinc-900/50 overflow-hidden">
@@ -21,6 +28,7 @@
           <th class="px-5 py-3">Participant ID</th>
           <th class="px-5 py-3">External ID</th>
           <th class="px-5 py-3">Role</th>
+          <th class="px-5 py-3">Group</th>
           <th class="px-5 py-3">Registered</th>
           <th class="px-5 py-3 text-right">Observations</th>
           <th class="px-5 py-3 text-right">Interactions</th>
@@ -37,6 +45,15 @@
           <td class="px-5 py-3">
             <span class="inline-flex px-2 py-0.5 rounded-md bg-zinc-800/80 text-zinc-400 text-[10px] uppercase tracking-wider font-semibold">{{ r.role }}</span>
           </td>
+          <td class="px-5 py-3">
+            {% if r.group == 'control' %}
+              <span class="inline-flex px-2 py-0.5 rounded-md bg-zinc-800/80 text-zinc-300 text-[10px] uppercase tracking-wider font-semibold">Control</span>
+            {% elif r.group == 'treatment' %}
+              <span class="inline-flex px-2 py-0.5 rounded-md bg-blue-900/30 text-blue-400 text-[10px] uppercase tracking-wider font-semibold">Treatment</span>
+            {% else %}
+              <span class="inline-flex px-2 py-0.5 rounded-md bg-zinc-800/30 text-zinc-500 text-[10px] uppercase tracking-wider font-semibold">{{ r.group }}</span>
+            {% endif %}
+          </td>
           <td class="px-5 py-3 text-zinc-400 whitespace-nowrap text-xs">
             {{ r.createdAt.strftime('%b %d, %Y · %H:%M') if r.createdAt else '—' }}
           </td>
@@ -48,7 +65,7 @@
         </tr>
         {% else %}
         <tr>
-          <td colspan="7" class="px-5 py-12 text-center text-sm text-zinc-500">
+          <td colspan="8" class="px-5 py-12 text-center text-sm text-zinc-500">
             No participants have registered yet.
           </td>
         </tr>

@@ -112,6 +112,7 @@ async def overview_page(request: Request):
 @router.get("/participants", response_class=HTMLResponse)
 async def participants_page(
     request: Request,
+    group: str | None = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=500),
 ):
@@ -119,11 +120,17 @@ async def participants_page(
         return r
     d = db.state.db
     skip = (page - 1) * page_size
-    rows = await queries.list_participants(d, skip=skip, limit=page_size)
-    total = await d.participants.count_documents({})
+    rows = await queries.list_participants(d, group=group, skip=skip, limit=page_size)
+    
+    query = {}
+    if group:
+        query["group"] = group
+    total = await d.participants.count_documents(query)
+    
     return templates.TemplateResponse(request, "participants.html", {
         "active": "participants",
         "rows": rows,
+        "filters": {"group": group},
         "page": page,
         "page_size": page_size,
         "total": total,

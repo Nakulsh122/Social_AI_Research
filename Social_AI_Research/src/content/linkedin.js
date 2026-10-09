@@ -5,13 +5,18 @@
   const MIN_FOR_SCORING = 250;
   const tracker = createViewportTracker();
 
-  // Control-group participants see no badges at all. The flag is set at boot
-  // via a GET_GROUP message to the SW, and reinforced on every SCORE_RESULT.
-  let showBadges = true;
+  // Control-group participants see no badges at all. We also wait until
+  // enrollment is fully complete before scanning to prevent "ERROR" badges.
+  let showBadges = false;
+  let isEnrolled = false;
   chrome.runtime.sendMessage({ type: 'GET_GROUP' }, (res) => {
-    if (chrome.runtime.lastError) return; // SW not ready yet; will sync on first SCORE_RESULT
-    if (res && res.group === 'control') showBadges = false;
-    console.log('🧪 [SAIR] LinkedIn Content Script loaded. Group:', res?.group || 'unknown', '| Showing Badges:', showBadges);
+    if (chrome.runtime.lastError) return;
+    if (res && res.enrolled) {
+      isEnrolled = true;
+      showBadges = res.group !== 'control';
+      console.log('🧪 [SAIR] LinkedIn Content Script loaded. Group:', res.group, '| Showing Badges:', showBadges);
+      scan(); // Kickoff scan now that we are enrolled
+    }
   });
 
   // Code points, not UTF-16 code units — matches Python's len() on the backend.
@@ -28,6 +33,10 @@
   // postIds skipped because their body is below MIN_FOR_SCORING — we still
   // surface a badge so the user can tell "skipped" apart from "not detected".
   const tooShort = new Set();
+  // All postIds that we have ever tracked (sent, short, or scored). Used by
+  // paintBadge to avoid removing the badge when LinkedIn re-mounts a virtualized
+  // element after the inFlight entry has already been cleared (badge flicker fix).
+  const trackedKeys = new Set();
 
   function log(...args) { if (DEBUG) console.debug('[SAIR-LI]', ...args); }
 
@@ -82,8 +91,7 @@
     for (let i = 0; i < limit; i++) {
       const l = lines[i].trim();
       if (
-        /^\d+\s*(s|sec|m|min|h|hr|d|w|mo|y|yr)\s*[•·]?\s*$/i.test(l) ||
-        /^\d+\s*\w+\s*ago$/i.test(l)
+        /^(?:\d+\s*(?:s|sec|m|min|h|hr|d|w|mo|y|yr)(?:\s*[•·]\s*(?:Edited|Promoted))?|\d+\s*\w+\s*ago|yesterday|just now)$/i.test(l)
       ) {
         let j = i + 1;
         while (j < limit && lines[j].trim() !== '') j++;
@@ -99,8 +107,23 @@
     const lines = text.split('\n').map((l) => l.replace(/\s+$/, ''));
     const footerStart = findFooterStart(lines);
     const limit = footerStart === -1 ? lines.length : footerStart;
-    const bodyStart = findBodyStart(lines, limit);
-    if (bodyStart === -1) return null;
+    let bodyStart = findBodyStart(lines, limit);
+
+    if (bodyStart === -1) {
+      // Fallback for link-card posts or unusual layouts with no time anchor:
+      // skip obvious header lines (name, short label-like tokens) and use the
+      // first substantive line as the body start. We look for the first line
+      // that is longer than 60 chars, treating it as the real post text.
+      for (let i = 0; i < limit; i++) {
+        if (lines[i].trim().length > 60) {
+          bodyStart = i;
+          break;
+        }
+      }
+      // If still not found, give up.
+      if (bodyStart === -1) return null;
+    }
+
     let bodyEnd = limit;
     while (bodyEnd > bodyStart && lines[bodyEnd - 1].trim() === '') bodyEnd--;
     const body = lines.slice(bodyStart, bodyEnd).join('\n').trim();
@@ -163,10 +186,8 @@
     const limit = footerStart === -1 ? lines.length : footerStart;
     for (let i = 0; i < limit; i++) {
       const l = lines[i];
-      let m = l.match(/^(\d+\s*(?:s|sec|m|min|h|hr|d|w|mo|y|yr))\s*[•·]?\s*$/i);
-      if (m) return m[1].replace(/\s+/g, '');
-      m = l.match(/^(\d+\s*\w+)\s+ago$/i);
-      if (m) return m[1].replace(/\s+/g, '');
+      let m = l.match(/^(?:\d+\s*(?:s|sec|m|min|h|hr|d|w|mo|y|yr)(?:\s*[•·]\s*(?:Edited|Promoted))?|\d+\s*\w+\s*ago|yesterday|just now)$/i);
+      if (m) return m[0].replace(/\s+/g, '');
     }
     return null;
   }
@@ -190,7 +211,7 @@
   // Heuristic — LinkedIn ships two DOM variants with hashed class names, so
   // we work from innerText lines. Returns whatever fields could be parsed;
   // missing fields are null. Tolerant to reposts, ads, articles.
-  const LI_REL_TIME = /^\d+\s*(s|sec|m|min|h|hr|d|w|mo|y|yr)\s*[•·]?\s*$/i;
+  const LI_REL_TIME = /^(?:\d+\s*(?:s|sec|m|min|h|hr|d|w|mo|y|yr)(?:\s*[•·]\s*(?:Edited|Promoted))?|\d+\s*\w+\s*ago|yesterday|just now)$/i;
   const LI_DEGREE = /^(1st|2nd|3rd\+?|Following)$/i;
   const LI_DEGREE_INLINE = /[·•]\s*(1st|2nd|3rd\+?|Following)/i;
   const LI_SKIP = new Set([
@@ -344,7 +365,7 @@
     }
     if (codePointLength(body) < MIN_FOR_SCORING) {
       const shortKey = getOrComputeKey(item, body);
-      if (shortKey) tooShort.add(shortKey);
+      if (shortKey) { tooShort.add(shortKey); trackedKeys.add(shortKey); }
       log(`skip (below ${MIN_FOR_SCORING}-char threshold): len=${codePointLength(body)}`);
       return null;
     }
@@ -443,8 +464,12 @@
     const rec = scored.get(key);
     const isPending = inFlight.has(key) && !rec;
     const isShort = tooShort.has(key) && !rec;
+    // If we've never seen/tracked this key at all, there's nothing to show.
+    // But if it's in trackedKeys (we sent it, it came back, or it's short),
+    // keep the badge even if inFlight is clear — prevents flash on re-mount.
+    const isTracked = trackedKeys.has(key);
 
-    if (!rec && !isPending && !isShort) { removeBadge(item); return; }
+    if (!rec && !isPending && !isShort && !isTracked) { removeBadge(item); return; }
 
     const badge = ensureBadge(item);
 
@@ -516,6 +541,7 @@
   }
 
   function scan() {
+    if (!isEnrolled) return;
     const items = findFeedItems();
     log(`scan: ${items.length} listitem(s) on page`);
     let captured = 0;
@@ -524,6 +550,7 @@
       if (post) {
         tracker.observe(item, post.postId);
         inFlight.add(post.postId);
+        trackedKeys.add(post.postId);
         sendPost(post, computePriorityNow(item));
         captured++;
       } else if (item.dataset.sairKey) {
@@ -540,8 +567,19 @@
   // We update our in-memory `scored` Map and repaint. No local cache.
 
   chrome.runtime.onMessage.addListener((msg, _sender, _sendResponse) => {
+    if (msg && msg.type === 'ENROLLMENT_COMPLETE') {
+      isEnrolled = true;
+      showBadges = msg.group !== 'control';
+      scan();
+      return false;
+    }
+
     if (!msg || msg.type !== 'SCORE_RESULT' || !msg.record) return false;
+    
+    isEnrolled = true;
     if (msg.group === 'control') showBadges = false;
+    else showBadges = true;
+
     const rec = msg.record;
     if (rec.platform !== 'linkedin') return false;
     scored.set(rec.postId, rec);

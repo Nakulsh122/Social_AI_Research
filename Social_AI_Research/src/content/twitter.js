@@ -5,12 +5,17 @@
   const MIN_FOR_SCORING = 250;
   const tracker = createViewportTracker();
 
-  // Control-group participants see no badges at all. The flag is set at boot
-  // via a GET_GROUP message to the SW, and reinforced on every SCORE_RESULT.
-  let showBadges = true;
+  // Control-group participants see no badges at all. We also wait until
+  // enrollment is fully complete before scanning to prevent "ERROR" badges.
+  let showBadges = false;
+  let isEnrolled = false;
   chrome.runtime.sendMessage({ type: 'GET_GROUP' }, (res) => {
     if (chrome.runtime.lastError) return;
-    if (res && res.group === 'control') showBadges = false;
+    if (res && res.enrolled) {
+      isEnrolled = true;
+      showBadges = res.group !== 'control';
+      scan(); // Kickoff scan now that we are enrolled
+    }
   });
 
   // Code points, not UTF-16 code units — matches Python's len() on the backend
@@ -302,6 +307,7 @@
   // ───────── Scan / observe ─────────
 
   function scan() {
+    if (!isEnrolled) return;
     const articles = document.querySelectorAll('article[data-testid="tweet"]');
     log(`scan: ${articles.length} tweet(s) on page`);
     let captured = 0;
@@ -327,8 +333,19 @@
   // We update our in-memory `scored` Map and repaint. No local cache.
 
   chrome.runtime.onMessage.addListener((msg, _sender, _sendResponse) => {
+    if (msg && msg.type === 'ENROLLMENT_COMPLETE') {
+      isEnrolled = true;
+      showBadges = msg.group !== 'control';
+      scan();
+      return false;
+    }
+
     if (!msg || msg.type !== 'SCORE_RESULT' || !msg.record) return false;
+    
+    isEnrolled = true;
     if (msg.group === 'control') showBadges = false;
+    else showBadges = true;
+
     const rec = msg.record;
     if (rec.platform !== 'twitter') return false;
     scored.set(rec.postId, rec);

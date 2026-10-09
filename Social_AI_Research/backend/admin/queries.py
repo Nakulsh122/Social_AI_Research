@@ -94,12 +94,16 @@ async def observations_per_day(db, days: int = 30) -> list[dict]:
 
 # ─────────────────────────── Participants ───────────────────────────
 
-async def list_participants(db, skip: int = 0, limit: int = 200) -> list[dict]:
+async def list_participants(db, group: str | None = None, skip: int = 0, limit: int = 200) -> list[dict]:
     """List participants with derived counts (observation+interaction totals,
     last activity timestamp). Uses two extra queries per participant — fine
     for the dozens-of-participants scale this study targets.
     """
-    cursor = db.participants.find().sort("createdAt", -1).skip(skip).limit(limit)
+    query = {}
+    if group:
+        query["group"] = group
+
+    cursor = db.participants.find(query).sort("createdAt", -1).skip(skip).limit(limit)
     out = []
     async for p in cursor:
         pid = p.get("participantId") or str(p["_id"])
@@ -112,6 +116,7 @@ async def list_participants(db, skip: int = 0, limit: int = 200) -> list[dict]:
             "participantId": pid,
             "externalId": p.get("externalId"),
             "role": p.get("role", "participant"),
+            "group": p.get("group", "unknown"),
             "createdAt": p.get("createdAt"),
             "observationCount": obs_count,
             "interactionCount": int_count,
@@ -130,6 +135,7 @@ async def get_participant(db, participant_id: str) -> dict | None:
         "participantId": p.get("participantId"),
         "externalId": p.get("externalId"),
         "role": p.get("role", "participant"),
+        "group": p.get("group", "unknown"),
         "createdAt": p.get("createdAt"),
         "active": p.get("active", True),
         "observationCount": obs_count,

@@ -13,6 +13,7 @@
   <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500 mt-2">
     <span><span class="text-zinc-600">External ID</span> <span class="text-zinc-300">{{ p.externalId or '—' }}</span></span>
     <span><span class="text-zinc-600">Role</span> <span class="text-zinc-300">{{ p.role }}</span></span>
+    <span><span class="text-zinc-600">Group</span> <span class="text-zinc-300">{{ p.group }}</span></span>
     <span><span class="text-zinc-600">Active</span> <span class="text-zinc-300">{{ 'yes' if p.active else 'no' }}</span></span>
     <span><span class="text-zinc-600">Registered</span> <span class="text-zinc-300">{{ p.createdAt.strftime('%b %d, %Y · %H:%M') if p.createdAt else '—' }}</span></span>
   </div>

@@ -148,27 +148,20 @@ class RegisterRequest(BaseModel):
 
 @app.post("/register")
 async def register(request: Request) -> dict:
-    """Mint a fresh participant identity. Called by the extension on first
-    launch — no auth required. The extension stores the returned token and
-    sends it as `Authorization: Bearer <token>` on every subsequent request.
+    """Register or re-register a participant.
 
-    Optional body `{externalId: "..."}` — typically a Prolific participant ID
-    or other recruitment-platform identifier. Stored as-is on the participant
-    document; no format validation here.
+    If an `externalId` (e.g. Prolific PID) is provided and a participant with
+    that ID already exists, this is treated as a **re-install**: a fresh token
+    is issued (the old token is invalidated) but the original participantId and
+    group assignment are preserved.  This ensures that uninstall→reinstall with
+    the same recruitment-platform ID always lands the participant in the same
+    study group.
 
-    Each call creates a new participant row. Uninstall/reinstall = new ID;
-    cross-device users get one ID per install. This is intentional given the
-    no-friction install model.
+    If the externalId has never been seen before (or no externalId is given),
+    a brand-new participant row is created with a randomly assigned group.  The
+    IP-based rate limit only applies to new registrations — returning
+    participants bypassing re-registration do not consume a rate-limit slot.
     """
-    try:
-        rate_limit.check_and_record_register(_client_ip(request))
-    except rate_limit.RateLimitExceeded as e:
-        raise HTTPException(
-            status_code=429,
-            detail=str(e),
-            headers={"Retry-After": str(e.retry_after)},
-        )
-
     external_id: str | None = None
     try:
         raw = await request.body()
@@ -178,9 +171,49 @@ async def register(request: Request) -> dict:
     except Exception:
         external_id = None
 
+    now = datetime.now(timezone.utc)
+
+    # ── Re-registration path: externalId already exists ──────────────────────
+    # Check before rate-limiting so returning participants aren't penalised.
+    if external_id:
+        existing = await db.state.db.participants.find_one({"externalId": external_id})
+        if existing:
+            # Rotate the token so the old install can no longer make requests.
+            new_token = secrets.token_urlsafe(32)
+            await db.state.db.participants.update_one(
+                {"_id": existing["_id"]},
+                {
+                    "$set": {
+                        "token": new_token,
+                        "lastReRegisteredAt": now,
+                    },
+                    "$inc": {"reRegisterCount": 1},
+                },
+            )
+            return {
+                "participantId": existing["participantId"],
+                "token": new_token,
+                "group": existing["group"],
+                "createdAt": existing["createdAt"].isoformat()
+                    if hasattr(existing.get("createdAt"), "isoformat")
+                    else str(existing.get("createdAt", "")),
+                "externalId": external_id,
+                "reRegistered": True,
+            }
+
+    # ── New registration path ─────────────────────────────────────────────────
+    # Apply IP rate limit only for genuinely new participant registrations.
+    try:
+        rate_limit.check_and_record_register(_client_ip(request))
+    except rate_limit.RateLimitExceeded as e:
+        raise HTTPException(
+            status_code=429,
+            detail=str(e),
+            headers={"Retry-After": str(e.retry_after)},
+        )
+
     participant_id = f"u-{uuid.uuid4().hex[:16]}"
     token = secrets.token_urlsafe(32)
-    now = datetime.now(timezone.utc)
 
     # Randomly assign participant to control or treatment group.
     # Control-group users see no AI/Human/Mixed badges in-browser; all
@@ -196,16 +229,42 @@ async def register(request: Request) -> dict:
         "active": True,
         "createdAt": now,
         "source": "self-register",
+        "reRegisterCount": 0,
     }
     if external_id:
         doc["externalId"] = external_id
-    await db.state.db.participants.insert_one(doc)
+    try:
+        await db.state.db.participants.insert_one(doc)
+    except DuplicateKeyError:
+        # Race condition: another request inserted a participant with the same
+        # externalId between our find_one and this insert. Look up the winner
+        # and treat it as a re-registration (rotate their token).
+        existing = await db.state.db.participants.find_one({"externalId": external_id})
+        if existing:
+            new_token = secrets.token_urlsafe(32)
+            await db.state.db.participants.update_one(
+                {"_id": existing["_id"]},
+                {"$set": {"token": new_token, "lastReRegisteredAt": now},
+                 "$inc": {"reRegisterCount": 1}},
+            )
+            return {
+                "participantId": existing["participantId"],
+                "token": new_token,
+                "group": existing["group"],
+                "createdAt": existing["createdAt"].isoformat()
+                    if hasattr(existing.get("createdAt"), "isoformat")
+                    else str(existing.get("createdAt", "")),
+                "externalId": external_id,
+                "reRegistered": True,
+            }
+        raise  # unexpected duplicate (on token or participantId) — re-raise
     return {
         "participantId": participant_id,
         "token": token,
         "group": group,
         "createdAt": now.isoformat(),
         "externalId": external_id,
+        "reRegistered": False,
     }
 
 

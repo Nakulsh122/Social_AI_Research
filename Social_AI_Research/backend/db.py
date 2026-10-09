@@ -53,12 +53,26 @@ async def _ensure_indexes() -> None:
         ),
         IndexModel([("recordedAt", ASCENDING)], name="recordedAt"),
     ])
+    # Drop the old non-unique externalId index if it exists so we can create
+    # the unique variant. Safe to run on every startup — drop_index is a no-op
+    # if the named index doesn't exist (we catch the exception).
+    try:
+        await state.db.participants.drop_index("externalId")
+    except Exception:
+        pass  # index didn't exist or already replaced — fine
     await state.db.participants.create_indexes([
         IndexModel([("token", ASCENDING)], unique=True, name="token_unique"),
         IndexModel([("participantId", ASCENDING)], unique=True, name="participantId_unique"),
-        # Sparse: not all participants have an externalId (older rows from
-        # before the popup setup flow won't, and the field stays optional).
-        IndexModel([("externalId", ASCENDING)], sparse=True, name="externalId"),
+        # Sparse+unique: not all participants have an externalId, but when they
+        # do, it must be unique. This enforces one-participant-per-PID at the
+        # database level — if the application-level lookup races, the DB insert
+        # will fail with DuplicateKeyError and the caller should retry the lookup.
+        IndexModel(
+            [("externalId", ASCENDING)],
+            sparse=True,
+            unique=True,
+            name="externalId_unique",
+        ),
     ])
     # Interactions: append-only event log. No unique constraints — toggle
     # sequences (like → unlike → like) are valid and each event is a separate

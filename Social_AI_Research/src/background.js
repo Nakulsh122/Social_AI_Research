@@ -112,7 +112,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     tokenPromise = null;
     chrome.storage.local.remove(TOKEN_KEY).then(() => {
       ensureToken()
-        .then((t) => sendResponse({ ok: true, participantId: t.participantId, group: t.group }))
+        .then((t) => {
+          // Notify content scripts that enrollment is complete so they can begin scanning
+          chrome.tabs.query({ url: TAB_MATCH_URLS }, (tabs) => {
+            for (const tab of tabs) {
+              chrome.tabs.sendMessage(tab.id, { type: 'ENROLLMENT_COMPLETE', group: t.group }, () => {
+                void chrome.runtime.lastError;
+              });
+            }
+          });
+          sendResponse({ ok: true, participantId: t.participantId, group: t.group });
+        })
         .catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
     });
     return true;
@@ -120,7 +130,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
   if (msg.type === 'GET_GROUP') {
     chrome.storage.local.get(TOKEN_KEY).then((r) => {
-      sendResponse({ group: (r[TOKEN_KEY] && r[TOKEN_KEY].group) || 'treatment' });
+      const tok = r[TOKEN_KEY];
+      // A valid enrollment requires BOTH a token AND a group. If group is
+      // missing (e.g. token from an old install before groups were stored),
+      // report as unenrolled so the participant goes back through setup and
+      // gets a proper server-assigned group. Never default to 'treatment' —
+      // that would silently show badges to what might be a control-group user.
+      const enrolled = !!(tok && tok.token && tok.group);
+      sendResponse({
+        enrolled,
+        group: enrolled ? tok.group : null,
+      });
     });
     return true;
   }
@@ -190,7 +210,7 @@ async function broadcastScoreResult(record) {
   // Include the participant's group so content scripts can suppress badges
   // for control-group users without a separate storage read.
   const tok = await chrome.storage.local.get(TOKEN_KEY);
-  const group = (tok[TOKEN_KEY] && tok[TOKEN_KEY].group) || 'treatment';
+  const group = (tok[TOKEN_KEY] && tok[TOKEN_KEY].group) || null;
   let tabs;
   try {
     tabs = await chrome.tabs.query({ url: TAB_MATCH_URLS });
