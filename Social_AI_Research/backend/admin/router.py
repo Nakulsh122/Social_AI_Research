@@ -236,6 +236,7 @@ async def _stream_csv_observations(d) -> Any:
         "authorDisplayName", "authorHeadline", "authorConnectionDegree",
         "authorPremium", "authorVerified", "authorVerifiedType",
         "postedAt", "postedAtRelative", "url", "seenAt",
+        "dwellMs", "dwellSeconds",
         "likes", "comments", "reposts", "retweets", "replies", "views",
         "tier", "fraction_ai", "prediction_short", "text",
     ])
@@ -255,6 +256,8 @@ async def _stream_csv_observations(d) -> Any:
         sp = cache[key]
         detector = sp.get("detector") or {}
         eng = o.get("engagement") or {}
+        dwell_ms = o.get("dwellMs", 0)
+        dwell_sec = round(dwell_ms / 1000.0, 2) if dwell_ms else 0.0
         w.writerow([
             (o.get("recordedAt").isoformat() if o.get("recordedAt") else ""),
             o.get("userId", ""),
@@ -271,6 +274,8 @@ async def _stream_csv_observations(d) -> Any:
             o.get("postedAtRelative", ""),
             o.get("url", ""),
             o.get("seenAt", ""),
+            dwell_ms,
+            dwell_sec,
             eng.get("likes", ""),
             eng.get("comments", ""),
             eng.get("reposts", ""),
@@ -302,6 +307,26 @@ async def _stream_csv_interactions(d) -> Any:
         yield buf.getvalue(); buf.seek(0); buf.truncate(0)
 
 
+async def _stream_csv_dwell(d) -> Any:
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["recordedAt", "occurredAt", "userId", "platform", "postId", "dwellMs", "dwellSeconds"])
+    yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+    async for r in d.dwell_logs.find().sort("recordedAt", -1):
+        ms = r.get("dwellMs", 0)
+        sec = round(ms / 1000.0, 2) if ms else 0.0
+        w.writerow([
+            (r.get("recordedAt").isoformat() if r.get("recordedAt") else ""),
+            r.get("occurredAt", ""),
+            r.get("userId", ""),
+            r.get("platform", ""),
+            r.get("postId", ""),
+            ms,
+            sec,
+        ])
+        yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+
+
 @router.get("/export/observations.csv", dependencies=[Depends(auth.require_admin)])
 async def export_observations_csv():
     return StreamingResponse(
@@ -320,6 +345,15 @@ async def export_interactions_csv():
     )
 
 
+@router.get("/export/dwell.csv", dependencies=[Depends(auth.require_admin)])
+async def export_dwell_csv():
+    return StreamingResponse(
+        _stream_csv_dwell(db.state.db),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="sair_dwell.csv"'},
+    )
+
+
 @router.get("/export/full.json", dependencies=[Depends(auth.require_admin)])
 async def export_full_json():
     d = db.state.db
@@ -328,6 +362,7 @@ async def export_full_json():
         "participants": [p async for p in d.participants.find({}, projection={"token": 0})],
         "observations": [o async for o in d.observations.find()],
         "interactions": [i async for i in d.interactions.find()],
+        "dwell_logs": [dw async for dw in d.dwell_logs.find()],
         "scored_posts": [s async for s in d.scored_posts.find()],
     }
     body = json.dumps(payload, default=_json_default, indent=2)

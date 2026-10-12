@@ -66,6 +66,7 @@
           <th class="px-5 py-3">Platform</th>
           <th class="px-5 py-3">Author</th>
           <th class="px-5 py-3">Tier</th>
+          <th class="px-5 py-3">Dwell Time</th>
           <th class="px-5 py-3">Text preview</th>
         </tr>
       </thead>
@@ -76,7 +77,12 @@
           <td class="px-5 py-3">
             <a href="/admin/participants/{{ d.userId }}" class="font-mono text-xs text-zinc-300 hover:text-rutgers-light transition-colors">{{ d.userId }}</a>
           </td>
-          <td class="px-5 py-3 text-zinc-300 text-xs">{{ d.platform }}</td>
+          <td class="px-5 py-3 text-zinc-300 text-xs">
+            <div>{{ d.platform }}</div>
+            {% if d.postId %}
+            <div class="font-mono text-[10px] text-zinc-500 truncate max-w-[130px]" title="{{ d.postId }}">{{ d.postId }}</div>
+            {% endif %}
+          </td>
           <td class="px-5 py-3 text-zinc-200">{{ d.authorDisplayName or d.author or '—' }}</td>
           <td class="px-5 py-3">
             {% set tier = d.tier or 'unscored' %}
@@ -88,10 +94,20 @@
             } %}
             <span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border {{ tier_styles[tier] }}">{{ tier }}</span>
           </td>
+          <td class="px-5 py-3 text-zinc-300 font-mono text-xs whitespace-nowrap">
+            {% if d.dwellMs %}
+              <span class="text-zinc-200 font-medium">{{ d.dwellFormatted }}</span>
+              {% if d.dwellCount and d.dwellCount > 1 %}
+                <span class="text-[10px] text-zinc-500">({{ d.dwellCount }}x)</span>
+              {% endif %}
+            {% else %}
+              <span class="text-zinc-600">0s</span>
+            {% endif %}
+          </td>
           <td class="px-5 py-3 text-zinc-400 text-xs leading-relaxed max-w-md">{{ (d.text or '')[:200] }}{% if d.text and d.text|length > 200 %}…{% endif %}</td>
         </tr>
         {% else %}
-        <tr><td colspan="6" class="px-5 py-12 text-center text-sm text-zinc-500">No observations match these filters.</td></tr>
+        <tr><td colspan="7" class="px-5 py-12 text-center text-sm text-zinc-500">No observations match these filters.</td></tr>
         {% endfor %}
       </tbody>
     </table>

@@ -53,27 +53,35 @@ async def _ensure_indexes() -> None:
         ),
         IndexModel([("recordedAt", ASCENDING)], name="recordedAt"),
     ])
-    # Drop the old non-unique externalId index if it exists so we can create
-    # the unique variant. Safe to run on every startup — drop_index is a no-op
-    # if the named index doesn't exist (we catch the exception).
-    try:
-        await state.db.participants.drop_index("externalId")
-    except Exception:
-        pass  # index didn't exist or already replaced — fine
     await state.db.participants.create_indexes([
         IndexModel([("token", ASCENDING)], unique=True, name="token_unique"),
         IndexModel([("participantId", ASCENDING)], unique=True, name="participantId_unique"),
-        # Sparse+unique: not all participants have an externalId, but when they
-        # do, it must be unique. This enforces one-participant-per-PID at the
-        # database level — if the application-level lookup races, the DB insert
-        # will fail with DuplicateKeyError and the caller should retry the lookup.
-        IndexModel(
-            [("externalId", ASCENDING)],
-            sparse=True,
-            unique=True,
-            name="externalId_unique",
-        ),
     ])
+    # Sparse+unique: not all participants have an externalId, but when they
+    # do, it must be unique. If existing data has duplicates from earlier runs,
+    # MongoDB will reject the unique constraint. In that case, fall back to a
+    # non-unique sparse index so startup doesn't crash.
+    try:
+        await state.db.participants.drop_index("externalId")
+    except Exception:
+        pass
+    try:
+        await state.db.participants.create_indexes([
+            IndexModel(
+                [("externalId", ASCENDING)],
+                sparse=True,
+                unique=True,
+                name="externalId_unique",
+            ),
+        ])
+    except Exception as e:
+        import logging
+        logging.getLogger("uvicorn.error").warning(
+            "Could not build unique externalId index due to existing duplicate records; falling back to non-unique sparse index: %s", e
+        )
+        await state.db.participants.create_indexes([
+            IndexModel([("externalId", ASCENDING)], sparse=True, name="externalId"),
+        ])
     # Interactions: append-only event log. No unique constraints — toggle
     # sequences (like → unlike → like) are valid and each event is a separate
     # row. Indexes optimize the common research queries:
@@ -96,3 +104,14 @@ async def _ensure_indexes() -> None:
             name="platform_action",
         ),
     ])
+    # Dwell logs: granular event log of dwell sessions / periodic flushes.
+    await state.db.dwell_logs.create_indexes([
+        IndexModel([("userId", ASCENDING)], name="userId"),
+        IndexModel(
+            [("userId", ASCENDING), ("platform", ASCENDING), ("postId", ASCENDING)],
+            name="userId_platform_postId",
+        ),
+        IndexModel([("recordedAt", ASCENDING)], name="recordedAt"),
+        IndexModel([("platform", ASCENDING)], name="platform"),
+    ])
+

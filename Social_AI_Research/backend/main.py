@@ -96,6 +96,8 @@ class ObservationIn(BaseModel):
     engagement: Engagement | None = None
     seenAt: int | None = None
     badgeShown: bool | None = None
+    dwellMs: int | None = 0
+    dwellCount: int | None = 0
 
 
 class InteractionIn(BaseModel):
@@ -106,6 +108,18 @@ class InteractionIn(BaseModel):
     # repost_click, send_click).
     action: str = Field(..., min_length=1, max_length=64)
     occurredAt: int | None = None
+
+
+class DwellItem(BaseModel):
+    platform: str = Field(..., pattern="^(twitter|linkedin)$")
+    postId: str = Field(..., min_length=1)
+    dwellMs: int = Field(..., ge=1, le=86400000)
+    occurredAt: int | None = None
+
+
+class DwellIn(BaseModel):
+    events: list[DwellItem] | DwellItem
+
 
 
 # ─────────────────────────── Helpers ───────────────────────────
@@ -375,26 +389,107 @@ async def add_observations(
         )
 
     now = datetime.now(timezone.utc)
-    docs = []
+    inserted = 0
     for r in items:
         d = r.model_dump()
         d["userId"] = user_id
         d["recordedAt"] = now
-        docs.append(d)
+        # Upsert observation doc so full metadata is set, while preserving any
+        # existing dwellMs / dwellCount that may have accumulated.
+        update_doc = {
+            "$set": {
+                k: v for k, v in d.items() if k not in ("dwellMs", "dwellCount")
+            },
+            "$setOnInsert": {
+                "dwellMs": 0,
+                "dwellCount": 0,
+            },
+        }
+        res = await db.state.db.observations.update_one(
+            {"userId": user_id, "platform": d["platform"], "postId": d["postId"]},
+            update_doc,
+            upsert=True,
+        )
+        if res.upserted_id is not None:
+            inserted += 1
+    return {"inserted": inserted, "userId": user_id, "received": len(items)}
 
-    # ordered=False so a duplicate on one doc doesn't abort the rest of the
-    # batch. The unique index on (userId, platform, postId) silently rejects
-    # repeats from tab reloads / page navigations — exposure for the study is
-    # counted once per (user, post), not once per render.
-    try:
-        result = await db.state.db.observations.insert_many(docs, ordered=False)
-        inserted = len(result.inserted_ids)
-    except BulkWriteError as bwe:
-        inserted = bwe.details.get("nInserted", 0)
-        non_dup = [e for e in bwe.details.get("writeErrors", []) if e.get("code") != 11000]
-        if non_dup:
-            raise
-    return {"inserted": inserted, "userId": user_id, "received": len(docs)}
+
+@app.post("/dwell")
+async def record_dwell(
+    payload: DwellIn,
+    participant: dict = Depends(current_participant),
+) -> dict:
+    """Record participant dwell time on posts.
+
+    Logs granular dwell chunks/episodes into `dwell_logs` and atomically
+    increments `dwellMs` and `dwellCount` on the matching `observations` record.
+    Short or unscored posts (which are not in observations or scored_posts)
+    are ignored so they never create empty observation stubs or pollute dwell_logs.
+    """
+    items = payload.events if isinstance(payload.events, list) else [payload.events]
+    if not items:
+        return {"inserted": 0}
+
+    user_id = _participant_id(participant)
+    now = datetime.now(timezone.utc)
+    valid_docs = []
+
+    for it in items:
+        # Check if an observation already exists
+        has_obs = await db.state.db.observations.find_one(
+            {"userId": user_id, "platform": it.platform, "postId": it.postId}
+        )
+        is_scored = None
+        if not has_obs:
+            # Check if post is scored (valid post >= 250 chars whose observation is in-flight)
+            is_scored = await db.state.db.scored_posts.find_one(
+                {"platform": it.platform, "postId": it.postId}
+            )
+
+        # If post is neither observed nor scored (e.g. short post < 250 chars), ignore it
+        if not has_obs and not is_scored:
+            continue
+
+        valid_docs.append({
+            "userId": user_id,
+            "platform": it.platform,
+            "postId": it.postId,
+            "dwellMs": it.dwellMs,
+            "occurredAt": it.occurredAt,
+            "recordedAt": now,
+        })
+
+        if has_obs:
+            await db.state.db.observations.update_one(
+                {"_id": has_obs["_id"]},
+                {
+                    "$inc": {"dwellMs": it.dwellMs, "dwellCount": 1},
+                    "$set": {"lastDwellAt": now},
+                },
+            )
+        else:
+            await db.state.db.observations.update_one(
+                {"userId": user_id, "platform": it.platform, "postId": it.postId},
+                {
+                    "$inc": {"dwellMs": it.dwellMs, "dwellCount": 1},
+                    "$set": {"lastDwellAt": now},
+                    "$setOnInsert": {
+                        "userId": user_id,
+                        "platform": it.platform,
+                        "postId": it.postId,
+                        "recordedAt": now,
+                        "seenAt": it.occurredAt,
+                    },
+                },
+                upsert=True,
+            )
+
+    if valid_docs:
+        await db.state.db.dwell_logs.insert_many(valid_docs, ordered=False)
+
+    return {"ok": True, "count": len(valid_docs)}
+
 
 
 @app.post("/interactions")

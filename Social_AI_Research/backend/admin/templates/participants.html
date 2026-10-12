@@ -32,6 +32,7 @@
           <th class="px-5 py-3">Registered</th>
           <th class="px-5 py-3 text-right">Observations</th>
           <th class="px-5 py-3 text-right">Interactions</th>
+          <th class="px-5 py-3 text-right">Total Dwell</th>
           <th class="px-5 py-3">Last seen</th>
         </tr>
       </thead>
@@ -59,13 +60,14 @@
           </td>
           <td class="px-5 py-3 text-right tabular-nums text-zinc-100 font-medium">{{ r.observationCount }}</td>
           <td class="px-5 py-3 text-right tabular-nums text-zinc-100 font-medium">{{ r.interactionCount }}</td>
+          <td class="px-5 py-3 text-right tabular-nums text-zinc-300 font-medium font-mono text-xs">{{ r.totalDwellFormatted }}</td>
           <td class="px-5 py-3 text-zinc-400 whitespace-nowrap text-xs">
             {{ r.lastSeen.strftime('%b %d, %Y · %H:%M') if r.lastSeen else '—' }}
           </td>
         </tr>
         {% else %}
         <tr>
-          <td colspan="8" class="px-5 py-12 text-center text-sm text-zinc-500">
+          <td colspan="9" class="px-5 py-12 text-center text-sm text-zinc-500">
             No participants have registered yet.
           </td>
         </tr>

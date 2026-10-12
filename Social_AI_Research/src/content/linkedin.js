@@ -1,9 +1,10 @@
 (function () {
-  const { parseCount, hashString, sendPost, makeThrottledScanner, computePriorityNow, createViewportTracker } = window.SAIR;
+  const { parseCount, hashString, sendPost, makeThrottledScanner, computePriorityNow, createViewportTracker, createDwellTracker } = window.SAIR;
   const seen = new Set();
   const DEBUG = false;
   const MIN_FOR_SCORING = 250;
   const tracker = createViewportTracker();
+  const dwellTracker = createDwellTracker('linkedin');
 
   // Control-group participants see no badges at all. We also wait until
   // enrollment is fully complete before scanning to prevent "ERROR" badges.
@@ -40,7 +41,36 @@
 
   function log(...args) { if (DEBUG) console.debug('[SAIR-LI]', ...args); }
 
-  // ───────── Body / footer parsing ─────────
+  const LI_SKIP = new Set([
+    '', '•', '·', 'Promoted', 'Follow', 'Following', '+ Follow',
+    'Connect', '+ Connect', 'Message', 'Pending', 'Subscribe',
+    '1st', '2nd', '3rd', '3rd+',
+    'TOO SHORT', 'SCORING', 'SCORED', 'HUMAN', 'AI', 'MIXED', 'ERROR',
+  ]);
+
+  function isBadgeNoise(line) {
+    if (!line) return true;
+    const trimmed = line.trim();
+    if (LI_SKIP.has(trimmed)) return true;
+    if (/^(TOO SHORT|SCORING|SCORED|HUMAN|AI|MIXED|ERROR)$/i.test(trimmed)) return true;
+    if (/\b(?:AI-likely|segment[s]? scored)\b/i.test(trimmed)) return true;
+    return false;
+  }
+
+  function getCleanItemText(item) {
+    if (!item) return '';
+    const raw = item.innerText || '';
+    const badge = item.querySelector(':scope > .sair-badge, .sair-badge');
+    if (!badge) return raw;
+    const bText = (badge.innerText || '').trim();
+    return raw
+      .split('\n')
+      .filter((l) => {
+        const trimmed = l.trim();
+        return trimmed !== bText && !isBadgeNoise(trimmed);
+      })
+      .join('\n');
+  }
 
   function isFooterCruft(line) {
     if (!line) return true;
@@ -103,7 +133,7 @@
   }
 
   function extractBody(item) {
-    const text = item.innerText || '';
+    const text = getCleanItemText(item);
     const lines = text.split('\n').map((l) => l.replace(/\s+$/, ''));
     const footerStart = findFooterStart(lines);
     const limit = footerStart === -1 ? lines.length : footerStart;
@@ -166,7 +196,7 @@
   // Detect promoted/sponsored posts — LinkedIn marks these with a "Promoted"
   // label in the header area above the post body.
   function extractIsPromoted(item) {
-    const text = item.innerText || '';
+    const text = getCleanItemText(item);
     const lines = text.split('\n').map((l) => l.trim());
     const footerStart = findFooterStart(lines);
     const limit = footerStart === -1 ? lines.length : footerStart;
@@ -180,7 +210,7 @@
   // We have no reliable way to derive an absolute timestamp (LinkedIn doesn't
   // expose one in the DOM), so the relative string is the best we can capture.
   function extractPostedAtRelative(item) {
-    const text = item.innerText || '';
+    const text = getCleanItemText(item);
     const lines = text.split('\n').map((l) => l.trim());
     const footerStart = findFooterStart(lines);
     const limit = footerStart === -1 ? lines.length : footerStart;
@@ -214,15 +244,26 @@
   const LI_REL_TIME = /^(?:\d+\s*(?:s|sec|m|min|h|hr|d|w|mo|y|yr)(?:\s*[•·]\s*(?:Edited|Promoted))?|\d+\s*\w+\s*ago|yesterday|just now)$/i;
   const LI_DEGREE = /^(1st|2nd|3rd\+?|Following)$/i;
   const LI_DEGREE_INLINE = /[·•]\s*(1st|2nd|3rd\+?|Following)/i;
-  const LI_SKIP = new Set([
-    '', '•', '·', 'Promoted', 'Follow', 'Following', '+ Follow',
-    'Connect', '+ Connect', 'Message', 'Pending', 'Subscribe',
-    '1st', '2nd', '3rd', '3rd+',
-  ]);
 
   function extractAuthorMeta(item) {
     const out = { displayName: null, headline: null, connectionDegree: null };
-    const text = item.innerText || '';
+
+    // Primary: direct author profile link text (immune to badge insertion)
+    const authorLink = item.querySelector('a[href*="/in/"], a[href*="/company/"]');
+    if (authorLink) {
+      const linkLines = (authorLink.innerText || '')
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l && !isBadgeNoise(l));
+      if (linkLines.length > 0) {
+        const candidate = linkLines[0].split(/[·•]/)[0].trim();
+        if (candidate && !isBadgeNoise(candidate)) {
+          out.displayName = candidate;
+        }
+      }
+    }
+
+    const text = getCleanItemText(item);
     const lines = text.split('\n').map((l) => l.trim());
     const footerStart = findFooterStart(lines);
     const limit = footerStart === -1 ? lines.length : footerStart;
@@ -238,18 +279,20 @@
       if (m2) { out.connectionDegree = m2[1]; break; }
     }
 
-    for (const line of header) {
-      if (LI_SKIP.has(line)) continue;
-      if (LI_REL_TIME.test(line)) continue;
-      if (/^[\d.,]+\s+followers?$/i.test(line)) continue;
-      if (/reposted this/i.test(line)) continue;
-      if (LI_DEGREE_INLINE.test(line)) {
-        const cleaned = line.split(/[·•]/)[0].trim();
-        if (cleaned) { out.displayName = cleaned; break; }
-        continue;
+    if (!out.displayName) {
+      for (const line of header) {
+        if (isBadgeNoise(line)) continue;
+        if (LI_REL_TIME.test(line)) continue;
+        if (/^[\d.,]+\s+followers?$/i.test(line)) continue;
+        if (/reposted this/i.test(line)) continue;
+        if (LI_DEGREE_INLINE.test(line)) {
+          const cleaned = line.split(/[·•]/)[0].trim();
+          if (cleaned && !isBadgeNoise(cleaned)) { out.displayName = cleaned; break; }
+          continue;
+        }
+        out.displayName = line;
+        break;
       }
-      out.displayName = line;
-      break;
     }
 
     // Headline = the substantive line just before the relative-time line.
@@ -513,31 +556,36 @@
 
   // ───────── Scan / observe ─────────
 
+  function filterTopLevel(nodeList) {
+    const list = Array.from(nodeList);
+    return list.filter((el) => !list.some((parent) => parent !== el && parent.contains(el)));
+  }
+
   function findFeedItems() {
     // 1. Classic: role=list > role=listitem (the variant we originally built for)
     let items = document.querySelectorAll('main [role="list"] [role="listitem"]');
-    if (items.length) return items;
+    if (items.length) return filterTopLevel(items);
 
     // 2. Variant without role=list parent
     items = document.querySelectorAll('main [role="listitem"]');
-    if (items.length) return items;
+    if (items.length) return filterTopLevel(items);
 
     // 3. Newer/alternative DOM where posts are urn-tagged divs (no listitem role).
     //    Confirmed via diagnostic 2026-05-11: some users' LinkedIn has zero
     //    listitems and renders posts as `<div data-id="urn:li:activity:...">`.
     items = document.querySelectorAll('main [data-id^="urn:li:activity:"]');
-    if (items.length) return items;
+    if (items.length) return filterTopLevel(items);
 
     // 4. Alt URN-based attribute used on some variants
     items = document.querySelectorAll('main [data-urn^="urn:li:activity:"]');
-    if (items.length) return items;
+    if (items.length) return filterTopLevel(items);
 
     // 5. Semantic role=article (also appears in the newer variant)
     items = document.querySelectorAll('main [role="article"]');
-    if (items.length) return items;
+    if (items.length) return filterTopLevel(items);
 
     // 6. Last resort: any role=listitem anywhere on the page
-    return document.querySelectorAll('[role="listitem"]');
+    return filterTopLevel(document.querySelectorAll('[role="listitem"]'));
   }
 
   function scan() {
@@ -547,15 +595,17 @@
     let captured = 0;
     for (const item of items) {
       const post = extractListItem(item);
-      if (post) {
+      if (post && !tooShort.has(post.postId)) {
         tracker.observe(item, post.postId);
+        dwellTracker.observe(item, post.postId);
         inFlight.add(post.postId);
         trackedKeys.add(post.postId);
         sendPost(post, computePriorityNow(item));
         captured++;
-      } else if (item.dataset.sairKey) {
+      } else if (item.dataset.sairKey && seen.has(item.dataset.sairKey) && !tooShort.has(item.dataset.sairKey)) {
         // Already-seen post in a fresh DOM element (LinkedIn virtualizes).
         tracker.observe(item, item.dataset.sairKey);
+        dwellTracker.observe(item, item.dataset.sairKey);
       }
       paintBadge(item);
     }

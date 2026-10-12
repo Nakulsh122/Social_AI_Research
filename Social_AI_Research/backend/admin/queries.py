@@ -41,14 +41,42 @@ def tier_from_detector(detector: dict | None) -> str:
     return "unscored"
 
 
+def format_dwell_ms(ms: int | float | None) -> str:
+    if not ms or ms <= 0:
+        return "0s"
+    total_seconds = ms / 1000.0
+    if total_seconds < 60:
+        return f"{total_seconds:.1f}s"
+    minutes = int(total_seconds // 60)
+    seconds = int(total_seconds % 60)
+    if minutes < 60:
+        return f"{minutes}m {seconds}s"
+    hours = int(minutes // 60)
+    minutes = int(minutes % 60)
+    return f"{hours}h {minutes}m"
+
+
 # ─────────────────────────── Overview ───────────────────────────
 
-async def overview_counts(db) -> dict[str, int]:
+async def overview_counts(db) -> dict[str, Any]:
+    obs_count = await db.observations.count_documents({})
+    dwell_pipe = [
+        {"$group": {"_id": None, "totalDwell": {"$sum": "$dwellMs"}}}
+    ]
+    dwell_res = await db.observations.aggregate(dwell_pipe).to_list(1)
+    total_dwell_ms = dwell_res[0]["totalDwell"] if dwell_res else 0
+    avg_dwell_ms = round(total_dwell_ms / obs_count) if obs_count > 0 else 0
+
     return {
         "participants": await db.participants.count_documents({}),
-        "observations": await db.observations.count_documents({}),
+        "observations": obs_count,
         "interactions": await db.interactions.count_documents({}),
         "scored_posts": await db.scored_posts.count_documents({}),
+        "dwell_logs": await db.dwell_logs.count_documents({}),
+        "total_dwell_ms": total_dwell_ms,
+        "avg_dwell_ms": avg_dwell_ms,
+        "total_dwell_formatted": format_dwell_ms(total_dwell_ms),
+        "avg_dwell_formatted": format_dwell_ms(avg_dwell_ms),
     }
 
 
@@ -96,8 +124,7 @@ async def observations_per_day(db, days: int = 30) -> list[dict]:
 
 async def list_participants(db, group: str | None = None, skip: int = 0, limit: int = 200) -> list[dict]:
     """List participants with derived counts (observation+interaction totals,
-    last activity timestamp). Uses two extra queries per participant — fine
-    for the dozens-of-participants scale this study targets.
+    dwell totals, last activity timestamp).
     """
     query = {}
     if group:
@@ -112,6 +139,14 @@ async def list_participants(db, group: str | None = None, skip: int = 0, limit: 
         last_obs = await db.observations.find_one(
             {"userId": pid}, sort=[("recordedAt", -1)], projection={"recordedAt": 1}
         )
+        dwell_pipe = [
+            {"$match": {"userId": pid}},
+            {"$group": {"_id": None, "totalDwell": {"$sum": "$dwellMs"}}}
+        ]
+        dwell_res = await db.observations.aggregate(dwell_pipe).to_list(1)
+        total_p_dwell = dwell_res[0]["totalDwell"] if dwell_res else 0
+        avg_p_dwell = round(total_p_dwell / obs_count) if obs_count > 0 else 0
+
         out.append({
             "participantId": pid,
             "externalId": p.get("externalId"),
@@ -120,6 +155,10 @@ async def list_participants(db, group: str | None = None, skip: int = 0, limit: 
             "createdAt": p.get("createdAt"),
             "observationCount": obs_count,
             "interactionCount": int_count,
+            "totalDwellMs": total_p_dwell,
+            "totalDwellFormatted": format_dwell_ms(total_p_dwell),
+            "avgDwellMs": avg_p_dwell,
+            "avgDwellFormatted": format_dwell_ms(avg_p_dwell),
             "lastSeen": last_obs.get("recordedAt") if last_obs else None,
         })
     return out
@@ -131,6 +170,14 @@ async def get_participant(db, participant_id: str) -> dict | None:
         return None
     obs_count = await db.observations.count_documents({"userId": participant_id})
     int_count = await db.interactions.count_documents({"userId": participant_id})
+    dwell_pipe = [
+        {"$match": {"userId": participant_id}},
+        {"$group": {"_id": None, "totalDwell": {"$sum": "$dwellMs"}}}
+    ]
+    dwell_res = await db.observations.aggregate(dwell_pipe).to_list(1)
+    total_p_dwell = dwell_res[0]["totalDwell"] if dwell_res else 0
+    avg_p_dwell = round(total_p_dwell / obs_count) if obs_count > 0 else 0
+
     return {
         "participantId": p.get("participantId"),
         "externalId": p.get("externalId"),
@@ -140,7 +187,12 @@ async def get_participant(db, participant_id: str) -> dict | None:
         "active": p.get("active", True),
         "observationCount": obs_count,
         "interactionCount": int_count,
+        "totalDwellMs": total_p_dwell,
+        "totalDwellFormatted": format_dwell_ms(total_p_dwell),
+        "avgDwellMs": avg_p_dwell,
+        "avgDwellFormatted": format_dwell_ms(avg_p_dwell),
     }
+
 
 
 # ─────────────────────────── Observations / interactions browsers ───────────────────────────
@@ -181,7 +233,11 @@ async def list_observations(
     docs = []
     async for d in cursor:
         d["_id"] = str(d["_id"])
+        d["dwellMs"] = d.get("dwellMs", 0)
+        d["dwellCount"] = d.get("dwellCount", 0)
+        d["dwellFormatted"] = format_dwell_ms(d["dwellMs"])
         docs.append(d)
+
     if join_detector and docs:
         keys = list({(d["platform"], d["postId"]) for d in docs})
         or_clause = [{"platform": p, "postId": pid} for p, pid in keys]

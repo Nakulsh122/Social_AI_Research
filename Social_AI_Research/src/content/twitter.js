@@ -1,9 +1,10 @@
 (function () {
-  const { parseCount, hashString, sendPost, makeThrottledScanner, computePriorityNow, createViewportTracker } = window.SAIR;
+  const { parseCount, hashString, sendPost, makeThrottledScanner, computePriorityNow, createViewportTracker, createDwellTracker } = window.SAIR;
   const seen = new Set();
   const DEBUG = false;
   const MIN_FOR_SCORING = 250;
   const tracker = createViewportTracker();
+  const dwellTracker = createDwellTracker('twitter');
 
   // Control-group participants see no badges at all. We also wait until
   // enrollment is fully complete before scanning to prevent "ERROR" badges.
@@ -313,15 +314,17 @@
     let captured = 0;
     for (const a of articles) {
       const post = extractTweet(a);
-      if (post) {
+      if (post && !tooShort.has(post.postId)) {
         tracker.observe(a, post.postId);
+        dwellTracker.observe(a, post.postId);
         inFlight.add(post.postId);
         sendPost(post, computePriorityNow(a));
         captured++;
-      } else if (a.dataset.sairKey) {
+      } else if (a.dataset.sairKey && seen.has(a.dataset.sairKey) && !tooShort.has(a.dataset.sairKey)) {
         // Already-seen post in a possibly-new DOM element (X virtualizes).
         // Re-observe so viewport changes still flow to the SW priority queue.
         tracker.observe(a, a.dataset.sairKey);
+        dwellTracker.observe(a, a.dataset.sairKey);
       }
       paintBadge(a);
     }

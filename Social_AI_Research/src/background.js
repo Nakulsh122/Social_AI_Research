@@ -95,6 +95,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return false;
   }
 
+  if (msg.type === 'DWELL_OBSERVED') {
+    // Batched dwell time updates on posts
+    if (Array.isArray(msg.updates) && msg.updates.length > 0) {
+      recordDwell(msg.updates).catch((e) => {
+        if (DEBUG) console.error('[SAIR] dwell error:', e?.message || e);
+      });
+    }
+    return false;
+  }
+
   if (msg.type === 'GET_OBSERVATIONS') {
     fetchObservations().then((r) => sendResponse(r));
     return true;
@@ -333,6 +343,13 @@ async function recordInteraction(payload) {
       action: payload.action,
       occurredAt: payload.occurredAt || null,
     }),
+  });
+}
+
+async function recordDwell(updates) {
+  return backendFetch('/dwell', {
+    method: 'POST',
+    body: JSON.stringify({ events: updates }),
   });
 }
 
