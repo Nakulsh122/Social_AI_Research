@@ -28,8 +28,6 @@ const MIN_TEXT_LENGTH = 250;
 const CONCURRENCY = 2;
 const DEFAULT_PRIORITY = 50;
 const TAB_MATCH_URLS = [
-  'https://twitter.com/*',
-  'https://x.com/*',
   'https://www.linkedin.com/*',
 ];
 
@@ -257,10 +255,13 @@ async function ensureToken() {
     if (!externalId) {
       throw new Error('Setup incomplete — open the extension popup and enter your Participant ID');
     }
+    const clientTz = (typeof Intl !== 'undefined' && Intl.DateTimeFormat)
+      ? Intl.DateTimeFormat().resolvedOptions().timeZone
+      : 'America/New_York';
     const res = await fetch(backendUrl() + '/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ externalId }),
+      body: JSON.stringify({ externalId, timezone: clientTz }),
     });
     if (!res.ok) {
       const body = await res.text().catch(() => '');
@@ -378,7 +379,7 @@ async function testBackend() {
     out.scoreResult = await backendFetch('/score', {
       method: 'POST',
       body: JSON.stringify({
-        platform: 'twitter',
+        platform: 'linkedin',
         postId: 'sair-test-' + Date.now(),
         text: sample,
       }),

@@ -1,12 +1,12 @@
-"""All admin routes — pages + JSON APIs + CSV/JSON exports.
+"""All admin routes — pages + JSON APIs + CSV/JSON/ZIP exports.
 
-Mounted in main.py with `app.include_router(admin.router)`. Self-contained:
-the only main.py change is the include.
+Mounted in main.py with `app.include_router(admin.router)`. Self-contained.
 """
 
 import csv
 import io
 import json
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -25,8 +25,6 @@ _HERE = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(_HERE / "templates"))
 
 router = APIRouter(prefix="/admin", tags=["admin"])
-# Static files are mounted on the FastAPI app in admin.setup(), not here —
-# APIRouter.mount() doesn't resolve paths the same way and silently 404s.
 
 
 # ─────────────────────────── Login / logout ───────────────────────────
@@ -101,11 +99,13 @@ async def overview_page(request: Request):
     counts = await queries.overview_counts(d)
     dist = await queries.score_distribution(d)
     per_day = await queries.observations_per_day(d, days=30)
+    recent_events = await queries.recent_active_events(d, limit=20)
     return templates.TemplateResponse(request, "overview.html", {
         "active": "overview",
         "counts": counts,
         "distribution": dist,
         "per_day": per_day,
+        "recent_events": recent_events,
     })
 
 
@@ -152,7 +152,6 @@ async def participant_detail_page(request: Request, participant_id: str):
     inters, _ = await queries.list_interactions(
         d, user_id=participant_id, skip=0, limit=50
     )
-    # Per-tier breakdown for this participant only
     tier_counts = {"human": 0, "mixed": 0, "ai": 0, "unscored": 0}
     full_obs, _ = await queries.list_observations(
         d, user_id=participant_id, skip=0, limit=10000, join_detector=True
@@ -228,6 +227,85 @@ async def interactions_page(
 
 # ─────────────────────────── Exports ───────────────────────────
 
+async def _stream_csv_participants(d) -> Any:
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow([
+        "participantId", "externalId", "group", "role", "timezone",
+        "createdAt", "lastSeen", "observationCount", "interactionCount",
+        "totalDwellMs", "totalDwellFormatted", "qualifyingDays", "complianceStatus",
+    ])
+    yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+
+    cursor = d.participants.find().sort("createdAt", -1)
+    async for p in cursor:
+        pid = p.get("participantId") or str(p["_id"])
+        obs_count = await d.observations.count_documents({"userId": pid})
+        int_count = await d.interactions.count_documents({"userId": pid})
+        last_obs = await d.observations.find_one(
+            {"userId": pid}, sort=[("recordedAt", -1)], projection={"recordedAt": 1}
+        )
+        dwell_res = await d.observations.aggregate([
+            {"$match": {"userId": pid}},
+            {"$group": {"_id": None, "t": {"$sum": "$dwellMs"}}}
+        ]).to_list(1)
+        tot_dwell = dwell_res[0]["t"] if dwell_res else 0
+        comp = await queries.participant_compliance_stats(d, p)
+
+        w.writerow([
+            pid,
+            p.get("externalId", ""),
+            p.get("group", ""),
+            p.get("role", "participant"),
+            p.get("timezone", "America/New_York"),
+            p.get("createdAt").isoformat() if p.get("createdAt") else "",
+            last_obs.get("recordedAt").isoformat() if (last_obs and last_obs.get("recordedAt")) else "",
+            obs_count,
+            int_count,
+            tot_dwell,
+            queries.format_dwell_ms(tot_dwell),
+            comp["complianceRatio"],
+            comp["statusLabel"],
+        ])
+        yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+
+
+async def _stream_csv_daily_compliance(d) -> Any:
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow([
+        "participantId", "externalId", "group", "timezone",
+        "qualifyingDays", "totalStudyDays", "complianceRatio", "complianceStatus",
+        "day1_date", "day1_activeMinutes", "day1_interactions", "day1_qualifies",
+        "day2_date", "day2_activeMinutes", "day2_interactions", "day2_qualifies",
+        "day3_date", "day3_activeMinutes", "day3_interactions", "day3_qualifies",
+        "day4_date", "day4_activeMinutes", "day4_interactions", "day4_qualifies",
+        "day5_date", "day5_activeMinutes", "day5_interactions", "day5_qualifies",
+        "day6_date", "day6_activeMinutes", "day6_interactions", "day6_qualifies",
+        "day7_date", "day7_activeMinutes", "day7_interactions", "day7_qualifies",
+    ])
+    yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+
+    cursor = d.participants.find().sort("createdAt", -1)
+    async for p in cursor:
+        pid = p.get("participantId") or str(p["_id"])
+        comp = await queries.participant_compliance_stats(d, p)
+        row = [
+            pid,
+            p.get("externalId", ""),
+            p.get("group", ""),
+            comp["timezone"],
+            comp["qualifyingDays"],
+            comp["totalStudyDays"],
+            comp["complianceRatio"],
+            comp["statusLabel"],
+        ]
+        for m in comp["matrix"]:
+            row.extend([m["date"], m["activeMinutes"], m["interactions"], "YES" if m["qualifies"] else "NO"])
+        w.writerow(row)
+        yield buf.getvalue(); buf.seek(0); buf.truncate(0)
+
+
 async def _stream_csv_observations(d) -> Any:
     buf = io.StringIO()
     w = csv.writer(buf)
@@ -243,7 +321,6 @@ async def _stream_csv_observations(d) -> Any:
     yield buf.getvalue(); buf.seek(0); buf.truncate(0)
 
     cursor = d.observations.find().sort("recordedAt", -1)
-    # We don't pre-join — too many rows. Look up each scored_post once.
     cache: dict[tuple[str, str], dict] = {}
     async for o in cursor:
         key = (o.get("platform"), o.get("postId"))
@@ -327,6 +404,75 @@ async def _stream_csv_dwell(d) -> Any:
         yield buf.getvalue(); buf.seek(0); buf.truncate(0)
 
 
+@router.get("/export/all.zip", dependencies=[Depends(auth.require_admin)])
+async def export_all_zip():
+    """One-click export of ALL study data in a single zip archive."""
+    d = db.state.db
+    zip_buffer = io.BytesIO()
+
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
+        # 1. participants.csv
+        p_buf = io.StringIO()
+        async for chunk in _stream_csv_participants(d):
+            p_buf.write(chunk)
+        zipf.writestr("participants.csv", p_buf.getvalue())
+
+        # 2. daily_compliance_summary.csv
+        c_buf = io.StringIO()
+        async for chunk in _stream_csv_daily_compliance(d):
+            c_buf.write(chunk)
+        zipf.writestr("daily_compliance_summary.csv", c_buf.getvalue())
+
+        # 3. observations.csv
+        o_buf = io.StringIO()
+        async for chunk in _stream_csv_observations(d):
+            o_buf.write(chunk)
+        zipf.writestr("observations.csv", o_buf.getvalue())
+
+        # 4. interactions.csv
+        i_buf = io.StringIO()
+        async for chunk in _stream_csv_interactions(d):
+            i_buf.write(chunk)
+        zipf.writestr("interactions.csv", i_buf.getvalue())
+
+        # 5. dwell.csv
+        dw_buf = io.StringIO()
+        async for chunk in _stream_csv_dwell(d):
+            dw_buf.write(chunk)
+        zipf.writestr("dwell.csv", dw_buf.getvalue())
+
+        # 6. complete_dataset.json
+        payload = {
+            "exportedAt": datetime.now(timezone.utc).isoformat(),
+            "participants": [p async for p in d.participants.find({}, projection={"token": 0})],
+            "observations": [o async for o in d.observations.find()],
+            "interactions": [i async for i in d.interactions.find()],
+            "dwell_logs": [dw async for dw in d.dwell_logs.find()],
+            "scored_posts": [s async for s in d.scored_posts.find()],
+        }
+        zipf.writestr("complete_dataset.json", json.dumps(payload, default=_json_default, indent=2))
+
+    zip_bytes = zip_buffer.getvalue()
+    now_str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    return StreamingResponse(
+        iter([zip_bytes]),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="sair_all_data_{now_str}.zip"',
+            "Content-Length": str(len(zip_bytes)),
+        },
+    )
+
+
+@router.get("/export/daily_compliance.csv", dependencies=[Depends(auth.require_admin)])
+async def export_daily_compliance_csv():
+    return StreamingResponse(
+        _stream_csv_daily_compliance(db.state.db),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="sair_daily_compliance.csv"'},
+    )
+
+
 @router.get("/export/observations.csv", dependencies=[Depends(auth.require_admin)])
 async def export_observations_csv():
     return StreamingResponse(
@@ -373,7 +519,7 @@ async def export_full_json():
     )
 
 
-# ─────────────────────────── JSON APIs (handy for ad-hoc curl) ───────────────────────────
+# ─────────────────────────── JSON APIs ───────────────────────────
 
 @router.get("/api/overview", dependencies=[Depends(auth.require_admin)])
 async def api_overview():
@@ -382,4 +528,5 @@ async def api_overview():
         "counts": await queries.overview_counts(d),
         "distribution": await queries.score_distribution(d),
         "per_day": await queries.observations_per_day(d, days=30),
+        "recent_events": await queries.recent_active_events(d, limit=20),
     })

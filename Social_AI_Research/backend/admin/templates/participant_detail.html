@@ -3,19 +3,114 @@
 
 {% block content %}
 
-<a href="/admin/participants" class="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors mb-3">
-  <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
-  All participants
-</a>
+<div class="flex items-center justify-between mb-4">
+  <a href="/admin/participants" class="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors">
+    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+    All participants
+  </a>
+  <button onclick="window.location.reload()" type="button"
+          class="inline-flex items-center gap-1.5 px-3 py-1 rounded-md border border-zinc-800 bg-zinc-900/60 hover:border-zinc-700 hover:text-white text-xs font-medium text-zinc-300 transition-colors">
+    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+    Refresh
+  </button>
+</div>
 
 <div class="mb-8">
-  <h1 class="text-2xl font-bold tracking-tight font-mono">{{ p.participantId }}</h1>
+  <div class="flex flex-col md:flex-row md:items-center justify-between gap-2">
+    <h1 class="text-2xl font-bold tracking-tight font-mono">{{ p.participantId }}</h1>
+    <div class="flex items-center gap-2">
+      <span class="text-xs text-zinc-400">Compliance Status:</span>
+      <span class="inline-flex px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider border {{ p.compliance.badgeClass }}">
+        {{ p.compliance.statusLabel }} ({{ p.compliance.complianceRatio }} days)
+      </span>
+    </div>
+  </div>
   <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500 mt-2">
     <span><span class="text-zinc-600">External ID</span> <span class="text-zinc-300">{{ p.externalId or '—' }}</span></span>
     <span><span class="text-zinc-600">Role</span> <span class="text-zinc-300">{{ p.role }}</span></span>
-    <span><span class="text-zinc-600">Group</span> <span class="text-zinc-300">{{ p.group }}</span></span>
+    <span><span class="text-zinc-600">Group</span> <span class="text-zinc-300 capitalize">{{ p.group }}</span></span>
+    <span><span class="text-zinc-600">Timezone</span> <span class="text-zinc-300 font-mono">{{ p.timezone }}</span></span>
     <span><span class="text-zinc-600">Active</span> <span class="text-zinc-300">{{ 'yes' if p.active else 'no' }}</span></span>
     <span><span class="text-zinc-600">Registered</span> <span class="text-zinc-300">{{ p.createdAt.strftime('%b %d, %Y · %H:%M') if p.createdAt else '—' }}</span></span>
+  </div>
+</div>
+
+{# ───────── 7-Day Study Compliance Matrix ───────── #}
+<div class="rounded-xl border border-zinc-800/80 bg-zinc-900/50 overflow-hidden mb-6">
+  <div class="flex items-baseline justify-between px-5 py-4 border-b border-zinc-800">
+    <div>
+      <h2 class="text-sm font-semibold tracking-tight">7-Day Active Days Compliance</h2>
+      <p class="text-xs text-zinc-500 mt-0.5">Requirement: at least 10 minutes of active activity per day for at least 5 days out of 7 (evaluated in {{ p.timezone }}).</p>
+    </div>
+    <div class="font-mono text-xs text-zinc-400">
+      Target: <span class="font-bold text-zinc-200">5 / 7 Days</span> (Achieved: <span class="font-bold text-zinc-100">{{ p.compliance.qualifyingDays }}</span>)
+    </div>
+  </div>
+  <div class="overflow-x-auto scrollbar-thin">
+    <table class="w-full text-sm">
+      <thead class="bg-zinc-900/40 text-[10px] uppercase tracking-[0.1em] text-zinc-500 font-semibold border-b border-zinc-800">
+        <tr>
+          <th class="px-5 py-3 text-left">Study Day</th>
+          <th class="px-5 py-3 text-left">Local Calendar Date</th>
+          <th class="px-5 py-3 text-right">Active Dwell Time</th>
+          <th class="px-5 py-3 text-right">Engagement Actions</th>
+          <th class="px-5 py-3 text-center">Threshold (≥10 min)</th>
+          <th class="px-5 py-3 text-left">Day Status</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-zinc-800/60">
+        {% for day in p.compliance.matrix %}
+        <tr class="hover:bg-zinc-800/30 transition-colors {% if day.isToday %}bg-zinc-800/20{% endif %}">
+          <td class="px-5 py-3 font-semibold text-xs text-zinc-200">
+            Day {{ day.day }}
+            {% if day.isToday %}<span class="ml-1.5 inline-block text-[9px] uppercase px-1.5 py-0.2 rounded bg-rutgers/20 text-rutgers-light font-bold">Today</span>{% endif %}
+          </td>
+          <td class="px-5 py-3 text-xs text-zinc-400 font-mono">{{ day.date }}</td>
+          <td class="px-5 py-3 text-right text-xs tabular-nums">
+            {% if day.activeMinutes > 0 %}
+              <span class="font-medium text-zinc-200">{{ day.activeMinutes }} min</span>
+              <span class="text-[10px] text-zinc-500">({{ day.dwellMs // 1000 }}s)</span>
+            {% else %}
+              <span class="text-zinc-600">0 min</span>
+            {% endif %}
+          </td>
+          <td class="px-5 py-3 text-right text-xs tabular-nums">
+            {% if day.interactions > 0 %}
+              <span class="font-semibold text-zinc-200">{{ day.interactions }} clicks</span>
+            {% else %}
+              <span class="text-zinc-600">0</span>
+            {% endif %}
+          </td>
+          <td class="px-5 py-3 text-center">
+            {% if day.qualifies %}
+              <span class="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-human/15 text-human border border-human/30">
+                ✅ Met ({{ day.activeMinutes }}m)
+              </span>
+            {% elif day.isFuture %}
+              <span class="inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold text-zinc-500 border border-zinc-800">
+                ⏳ Upcoming
+              </span>
+            {% else %}
+              <span class="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-ai/15 text-ai border border-ai/30">
+                ❌ Under 10m
+              </span>
+            {% endif %}
+          </td>
+          <td class="px-5 py-3 text-xs text-zinc-400">
+            {% if day.qualifies %}
+              <span class="text-human font-medium">Day Complete</span>
+            {% elif day.isFuture %}
+              <span class="text-zinc-600">Not elapsed</span>
+            {% elif day.activeMinutes > 0 %}
+              <span class="text-amber-400 font-medium">Needs {{ "%.1f"|format(10.0 - day.activeMinutes) }}m more</span>
+            {% else %}
+              <span class="text-zinc-500">No activity</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
 </div>
 
@@ -82,7 +177,7 @@
         {% for d in observations %}
         <tr class="hover:bg-zinc-800/30 transition-colors">
           <td class="px-5 py-3 text-zinc-400 whitespace-nowrap text-xs">{{ d.recordedAt.strftime('%b %d · %H:%M') if d.recordedAt else '—' }}</td>
-          <td class="px-5 py-3 text-zinc-300 text-xs">{{ d.platform }}</td>
+          <td class="px-5 py-3 text-zinc-300 text-xs capitalize">{{ d.platform }}</td>
           <td class="px-5 py-3 text-zinc-200">{{ d.authorDisplayName or d.author or '—' }}</td>
           <td class="px-5 py-3">
             {% set tier = d.tier or 'unscored' %}
@@ -100,14 +195,17 @@
               {% if d.dwellCount and d.dwellCount > 1 %}
                 <span class="text-[10px] text-zinc-500">({{ d.dwellCount }}x)</span>
               {% endif %}
+              {% if d.hasAnomaly %}
+                <span class="ml-1 inline-block px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-amber-500/15 text-amber-400 border border-amber-500/30" title="Outlier session (&gt;60s or total &gt;2m)">⚠️ Outlier</span>
+              {% endif %}
             {% else %}
               <span class="text-zinc-600">0s</span>
             {% endif %}
           </td>
-          <td class="px-5 py-3 text-zinc-400 text-xs leading-relaxed max-w-md">{{ (d.text or '')[:160] }}{% if d.text and d.text|length > 160 %}…{% endif %}</td>
+          <td class="px-5 py-3 text-zinc-400 text-xs max-w-md truncate">{{ d.text or '—' }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="6" class="px-5 py-12 text-center text-sm text-zinc-500">No observations yet.</td></tr>
+        <tr><td colspan="6" class="px-5 py-12 text-center text-sm text-zinc-500">No observations recorded yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -126,19 +224,19 @@
         <tr class="text-left text-[10px] uppercase tracking-[0.1em] text-zinc-500 font-semibold">
           <th class="px-5 py-3">Recorded</th>
           <th class="px-5 py-3">Platform</th>
-          <th class="px-5 py-3">Post ID</th>
           <th class="px-5 py-3">Action</th>
+          <th class="px-5 py-3">Post ID</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-zinc-800/60">
         {% for d in interactions %}
         <tr class="hover:bg-zinc-800/30 transition-colors">
           <td class="px-5 py-3 text-zinc-400 whitespace-nowrap text-xs">{{ d.recordedAt.strftime('%b %d · %H:%M') if d.recordedAt else '—' }}</td>
-          <td class="px-5 py-3 text-zinc-300 text-xs">{{ d.platform }}</td>
-          <td class="px-5 py-3 font-mono text-xs text-zinc-400 truncate max-w-xs">{{ d.postId }}</td>
+          <td class="px-5 py-3 text-zinc-300 text-xs capitalize">{{ d.platform }}</td>
           <td class="px-5 py-3">
-            <span class="inline-block px-2 py-0.5 rounded-md bg-zinc-800 text-zinc-300 text-[11px] font-medium">{{ d.action }}</span>
+            <span class="inline-flex px-2 py-0.5 rounded-md bg-zinc-800 text-zinc-200 text-xs font-mono font-medium">{{ d.action }}</span>
           </td>
+          <td class="px-5 py-3 font-mono text-xs text-zinc-400">{{ d.postId }}</td>
         </tr>
         {% else %}
         <tr><td colspan="4" class="px-5 py-12 text-center text-sm text-zinc-500">No interactions yet.</td></tr>

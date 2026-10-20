@@ -5,8 +5,21 @@ trivially testable and don't reach into the global state from the regular
 backend module.
 """
 
+import zoneinfo
 from datetime import datetime, timedelta, timezone
 from typing import Any
+
+
+# ─────────────────────────── Timezone helper ───────────────────────────
+
+def resolve_tz(tz_name: str | None) -> zoneinfo.ZoneInfo:
+    """Resolve an IANA timezone string (defaulting to US Eastern)."""
+    if not tz_name:
+        return zoneinfo.ZoneInfo("America/New_York")
+    try:
+        return zoneinfo.ZoneInfo(tz_name.strip())
+    except Exception:
+        return zoneinfo.ZoneInfo("America/New_York")
 
 
 # ─────────────────────────── Tier classification ───────────────────────────
@@ -120,12 +133,216 @@ async def observations_per_day(db, days: int = 30) -> list[dict]:
     return out
 
 
+# ─────────────────────────── Participant 5/7 Days Compliance ───────────────────────────
+
+async def participant_compliance_stats(db, participant: dict) -> dict[str, Any]:
+    """Calculate 5/7 active days compliance for a participant.
+    
+    A participant must have at least 10 minutes of active activity per day for
+    at least 5 days out of 7, bucketed in their local US timezone.
+    """
+    pid = participant.get("participantId") or str(participant["_id"])
+    tz_str = participant.get("timezone") or "America/New_York"
+    tz = resolve_tz(tz_str)
+
+    # Determine registration date in local timezone
+    created_at = participant.get("createdAt")
+    if created_at:
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+        created_local = created_at.astimezone(tz)
+    else:
+        created_local = datetime.now(timezone.utc).astimezone(tz)
+
+    start_date = created_local.date()
+    now_local = datetime.now(timezone.utc).astimezone(tz)
+    today_date = now_local.date()
+
+    # The 7 study calendar dates (Day 1 to Day 7)
+    study_dates = [start_date + timedelta(days=i) for i in range(7)]
+
+    # Initialize aggregators
+    daily_dwell_ms: dict[str, int] = {d.strftime("%Y-%m-%d"): 0 for d in study_dates}
+    daily_interactions: dict[str, int] = {d.strftime("%Y-%m-%d"): 0 for d in study_dates}
+
+    # 1. Aggregate dwell time (active focal reading on posts)
+    dwell_cursor = db.dwell_logs.find(
+        {"userId": pid},
+        projection={"dwellMs": 1, "recordedAt": 1, "occurredAt": 1}
+    )
+    async for doc in dwell_cursor:
+        rec = doc.get("recordedAt")
+        if rec:
+            if rec.tzinfo is None:
+                rec = rec.replace(tzinfo=timezone.utc)
+            date_key = rec.astimezone(tz).strftime("%Y-%m-%d")
+        elif doc.get("occurredAt"):
+            dt = datetime.fromtimestamp(doc["occurredAt"] / 1000.0, tz=timezone.utc)
+            date_key = dt.astimezone(tz).strftime("%Y-%m-%d")
+        else:
+            continue
+
+        daily_dwell_ms[date_key] = daily_dwell_ms.get(date_key, 0) + doc.get("dwellMs", 0)
+
+    # 2. Aggregate active engagement clicks (likes, comments, reposts, send)
+    int_cursor = db.interactions.find(
+        {"userId": pid},
+        projection={"action": 1, "recordedAt": 1, "occurredAt": 1}
+    ).sort("recordedAt", -1)
+    
+    last_active_action = None
+    last_active_time = None
+    
+    async for doc in int_cursor:
+        if not last_active_action:
+            last_active_action = doc.get("action")
+            rec = doc.get("recordedAt")
+            if rec:
+                if rec.tzinfo is None:
+                    rec = rec.replace(tzinfo=timezone.utc)
+                last_active_time = rec
+
+        rec = doc.get("recordedAt")
+        if rec:
+            if rec.tzinfo is None:
+                rec = rec.replace(tzinfo=timezone.utc)
+            date_key = rec.astimezone(tz).strftime("%Y-%m-%d")
+        elif doc.get("occurredAt"):
+            dt = datetime.fromtimestamp(doc["occurredAt"] / 1000.0, tz=timezone.utc)
+            date_key = dt.astimezone(tz).strftime("%Y-%m-%d")
+        else:
+            continue
+
+        daily_interactions[date_key] = daily_interactions.get(date_key, 0) + 1
+
+    # Build the 7-day breakdown matrix
+    matrix = []
+    qualifying_days_count = 0
+    days_elapsed = 0
+
+    for idx, d in enumerate(study_dates):
+        key = d.strftime("%Y-%m-%d")
+        ms = daily_dwell_ms.get(key, 0)
+        mins = round(ms / 60000.0, 1)
+        ints = daily_interactions.get(key, 0)
+
+        # Qualification rule: at least 10 minutes (600,000 ms) of active time
+        qualifies = ms >= 600000
+        if qualifies:
+            qualifying_days_count += 1
+
+        is_future = d > today_date
+        is_today = d == today_date
+        if not is_future:
+            days_elapsed += 1
+
+        matrix.append({
+            "day": idx + 1,
+            "date": key,
+            "dateFormatted": d.strftime("%b %d"),
+            "dwellMs": ms,
+            "activeMinutes": mins,
+            "interactions": ints,
+            "qualifies": qualifies,
+            "isFuture": is_future,
+            "isToday": is_today,
+        })
+
+    today_key = today_date.strftime("%Y-%m-%d")
+    today_active_mins = round(daily_dwell_ms.get(today_key, 0) / 60000.0, 1)
+    today_interactions = daily_interactions.get(today_key, 0)
+
+    # Compliance status evaluation (Target: >= 5 out of 7 days)
+    remaining_days = max(0, 7 - days_elapsed)
+    if qualifying_days_count >= 5:
+        status = "completed"
+        status_label = "Completed (5+/7)"
+        badge_class = "bg-human/15 text-human border-human/30"
+    elif qualifying_days_count + remaining_days < 5:
+        status = "incomplete"
+        status_label = "Incomplete (<5)"
+        badge_class = "bg-ai/15 text-ai border-ai/30"
+    elif days_elapsed > 0 and (qualifying_days_count / days_elapsed) >= (5.0 / 7.0):
+        status = "on_track"
+        status_label = "On Track"
+        badge_class = "bg-blue-500/15 text-blue-400 border-blue-500/30"
+    else:
+        status = "at_risk"
+        status_label = "At Risk"
+        badge_class = "bg-amber-500/15 text-amber-400 border-amber-500/30"
+
+    return {
+        "timezone": tz_str,
+        "qualifyingDays": qualifying_days_count,
+        "totalStudyDays": 7,
+        "complianceRatio": f"{qualifying_days_count}/7",
+        "status": status,
+        "statusLabel": status_label,
+        "badgeClass": badge_class,
+        "todayActiveMinutes": today_active_mins,
+        "todayInteractions": today_interactions,
+        "daysElapsed": min(7, days_elapsed),
+        "lastActiveAction": last_active_action,
+        "lastActiveTime": last_active_time,
+        "matrix": matrix,
+    }
+
+
+# ─────────────────────────── Recent Activity Log ───────────────────────────
+
+async def recent_active_events(db, limit: int = 25) -> list[dict]:
+    """Fetch the latest participant active engagements (likes, comments, reposts, send)."""
+    cursor = db.interactions.find().sort("recordedAt", -1).limit(limit)
+    events = []
+    participant_cache: dict[str, dict] = {}
+
+    async for item in cursor:
+        uid = item.get("userId", "")
+        if uid and uid not in participant_cache:
+            p = await db.participants.find_one(
+                {"participantId": uid},
+                projection={"externalId": 1, "group": 1, "timezone": 1}
+            )
+            participant_cache[uid] = p or {}
+        p_info = participant_cache.get(uid, {})
+
+        tz = resolve_tz(p_info.get("timezone"))
+        rec = item.get("recordedAt")
+        if rec and rec.tzinfo is None:
+            rec = rec.replace(tzinfo=timezone.utc)
+
+        local_rec = rec.astimezone(tz) if rec else None
+
+        # Friendly action formatting
+        action = item.get("action", "")
+        action_labels = {
+            "like_click": ("Liked a post", "bg-rose-500/15 text-rose-400 border-rose-500/30"),
+            "comment_click": ("Commented", "bg-sky-500/15 text-sky-400 border-sky-500/30"),
+            "repost_click": ("Reposted", "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"),
+            "send_click": ("Shared/Sent", "bg-purple-500/15 text-purple-400 border-purple-500/30"),
+        }
+        label, badge = action_labels.get(action, (action.replace("_", " ").title(), "bg-zinc-800 text-zinc-300 border-zinc-700"))
+
+        events.append({
+            "id": str(item.get("_id", "")),
+            "userId": uid,
+            "externalId": p_info.get("externalId"),
+            "group": p_info.get("group", "unknown"),
+            "platform": item.get("platform", "linkedin"),
+            "postId": item.get("postId", ""),
+            "action": action,
+            "actionLabel": label,
+            "badgeClass": badge,
+            "recordedAt": rec,
+            "recordedAtLocal": local_rec.strftime("%b %d · %H:%M %Z") if local_rec else "—",
+        })
+    return events
+
+
 # ─────────────────────────── Participants ───────────────────────────
 
 async def list_participants(db, group: str | None = None, skip: int = 0, limit: int = 200) -> list[dict]:
-    """List participants with derived counts (observation+interaction totals,
-    dwell totals, last activity timestamp).
-    """
+    """List participants with derived counts, dwell totals, and 5/7 compliance metrics."""
     query = {}
     if group:
         query["group"] = group
@@ -147,11 +364,15 @@ async def list_participants(db, group: str | None = None, skip: int = 0, limit: 
         total_p_dwell = dwell_res[0]["totalDwell"] if dwell_res else 0
         avg_p_dwell = round(total_p_dwell / obs_count) if obs_count > 0 else 0
 
+        # Calculate 5/7 active days compliance
+        compliance = await participant_compliance_stats(db, p)
+
         out.append({
             "participantId": pid,
             "externalId": p.get("externalId"),
             "role": p.get("role", "participant"),
             "group": p.get("group", "unknown"),
+            "timezone": p.get("timezone", "America/New_York"),
             "createdAt": p.get("createdAt"),
             "observationCount": obs_count,
             "interactionCount": int_count,
@@ -160,6 +381,7 @@ async def list_participants(db, group: str | None = None, skip: int = 0, limit: 
             "avgDwellMs": avg_p_dwell,
             "avgDwellFormatted": format_dwell_ms(avg_p_dwell),
             "lastSeen": last_obs.get("recordedAt") if last_obs else None,
+            "compliance": compliance,
         })
     return out
 
@@ -178,11 +400,14 @@ async def get_participant(db, participant_id: str) -> dict | None:
     total_p_dwell = dwell_res[0]["totalDwell"] if dwell_res else 0
     avg_p_dwell = round(total_p_dwell / obs_count) if obs_count > 0 else 0
 
+    compliance = await participant_compliance_stats(db, p)
+
     return {
         "participantId": p.get("participantId"),
         "externalId": p.get("externalId"),
         "role": p.get("role", "participant"),
         "group": p.get("group", "unknown"),
+        "timezone": p.get("timezone", "America/New_York"),
         "createdAt": p.get("createdAt"),
         "active": p.get("active", True),
         "observationCount": obs_count,
@@ -191,8 +416,8 @@ async def get_participant(db, participant_id: str) -> dict | None:
         "totalDwellFormatted": format_dwell_ms(total_p_dwell),
         "avgDwellMs": avg_p_dwell,
         "avgDwellFormatted": format_dwell_ms(avg_p_dwell),
+        "compliance": compliance,
     }
-
 
 
 # ─────────────────────────── Observations / interactions browsers ───────────────────────────
@@ -236,6 +461,10 @@ async def list_observations(
         d["dwellMs"] = d.get("dwellMs", 0)
         d["dwellCount"] = d.get("dwellCount", 0)
         d["dwellFormatted"] = format_dwell_ms(d["dwellMs"])
+        d["hasAnomaly"] = bool(d.get("hasAnomaly") or d["dwellMs"] >= 120000)
+        sessions = d.get("dwellSessions") or []
+        session_strs = [format_dwell_ms(s.get("ms", 0)) for s in sessions if isinstance(s, dict)]
+        d["sessionsSummary"] = ", ".join(session_strs) if session_strs else ""
         docs.append(d)
 
     if join_detector and docs:

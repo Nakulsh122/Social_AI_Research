@@ -100,6 +100,9 @@
               {% if d.dwellCount and d.dwellCount > 1 %}
                 <span class="text-[10px] text-zinc-500">({{ d.dwellCount }}x)</span>
               {% endif %}
+              {% if d.hasAnomaly %}
+                <span class="ml-1 inline-block px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-amber-500/15 text-amber-400 border border-amber-500/30" title="Outlier session (&gt;60s or total &gt;2m){% if d.sessionsSummary %}: {{ d.sessionsSummary }}{% endif %}">⚠️ Outlier</span>
+              {% endif %}
             {% else %}
               <span class="text-zinc-600">0s</span>
             {% endif %}

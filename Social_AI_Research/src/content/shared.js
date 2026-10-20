@@ -153,61 +153,127 @@
     };
   }
 
-  // Per-tab dwell time tracker: captures true active attention time on each post
-  // in the viewport (>=50% visible, tab focused/visible), batches and flushes to SW.
+  // Per-tab dwell time tracker: captures true active attention time on the SINGLE
+  // post nearest to the viewport center. Eliminates multi-post inflation.
+  // Automatically locks when scrolling, when window loses focus (app switch),
+  // or when user is inactive for >30s.
   function createDwellTracker(platform) {
     const elToId = new WeakMap();     // element -> postId
     const idToEl = new Map();         // postId -> element (most recent)
-    const activeSince = new Map();    // postId -> performance.now()
     const pendingDwell = new Map();   // postId -> total accumulated unflushed ms
+    let activePostId = null;
+    let activeSince = 0;
     let flushTimer = null;
-    let heartbeatTimer = null;
+    let watchdogTimer = null;
+    let isScrolling = false;
+    let scrollEndTimer = null;
+    let isWindowFocused = document.hasFocus();
+    let lastUserActivity = Date.now();
+    const IDLE_TIMEOUT_MS = 30000;
 
-    function isElementInView(el) {
-      if (!el || !el.isConnected) return false;
+    function recordActivity() {
+      lastUserActivity = Date.now();
+    }
+
+    const activityEvents = ['mousemove', 'keydown', 'click', 'wheel', 'touchstart'];
+    for (const evt of activityEvents) {
+      window.addEventListener(evt, recordActivity, { passive: true, capture: true });
+    }
+
+    window.addEventListener('focus', () => {
+      isWindowFocused = true;
+      recordActivity();
+      updateFocalDwell();
+    });
+
+    window.addEventListener('blur', () => {
+      isWindowFocused = false;
+      snapshotActive();
+    });
+
+    function isUserActive() {
       if (document.visibilityState !== 'visible') return false;
-      const rect = el.getBoundingClientRect();
+      if (!isWindowFocused) return false;
+      if (isScrolling) return false;
+      if (Date.now() - lastUserActivity > IDLE_TIMEOUT_MS) return false;
+      return true;
+    }
+
+    function findNearestCenterPostId() {
+      if (!isUserActive()) return null;
       const vh = window.innerHeight || 1;
-      const vw = window.innerWidth || 1;
-      if (rect.bottom <= 0 || rect.top >= vh || rect.right <= 0 || rect.left >= vw) {
-        return false;
+      const centerY = vh / 2;
+      let bestId = null;
+      let bestDist = Infinity;
+
+      for (const [postId, el] of idToEl) {
+        if (!el || !el.isConnected) continue;
+        const rect = el.getBoundingClientRect();
+        // Element must intersect the screen vertically
+        if (rect.bottom <= 0 || rect.top >= vh) continue;
+
+        const visibleHeight = Math.max(0, Math.min(rect.bottom, vh) - Math.max(rect.top, 0));
+        if (visibleHeight < 40) continue; // Skip tiny slivers
+
+        // Calculate distance from post's center to viewport center
+        let dist;
+        if (rect.top <= centerY && rect.bottom >= centerY) {
+          // Post covers the center line of the screen (highest priority)
+          const postCenter = rect.top + rect.height / 2;
+          dist = Math.abs(postCenter - centerY);
+        } else if (rect.bottom < centerY) {
+          dist = (centerY - rect.bottom) + 1000;
+        } else {
+          dist = (rect.top - centerY) + 1000;
+        }
+
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestId = postId;
+        }
       }
-      const visibleHeight = Math.max(0, Math.min(rect.bottom, vh) - Math.max(rect.top, 0));
-      const visibleWidth = Math.max(0, Math.min(rect.right, vw) - Math.max(rect.left, 0));
-      const elArea = (rect.height || 1) * (rect.width || 1);
-      const visibleArea = visibleHeight * visibleWidth;
-      const ratio = visibleArea / elArea;
-      if (ratio >= 0.5) return true;
-      if (visibleHeight / vh >= 0.5) return true;
-      return false;
+      return bestId;
     }
 
     function recordElapsed(postId, ms) {
       if (!ms || ms <= 0) return;
       const curr = pendingDwell.get(postId) || 0;
       pendingDwell.set(postId, curr + ms);
+      const total = curr + ms;
+      if (ms >= 60000 || total >= 120000) {
+        console.warn(`⚠️ [SAIR Dwell Anomaly] Long dwell detected: +${ms}ms (total: ${total}ms) on post ${postId}`);
+      }
       scheduleFlush();
     }
 
-    function checkEntry(entry) {
-      const postId = elToId.get(entry.target);
-      if (!postId) return;
-      idToEl.set(postId, entry.target);
-      const inView = isElementInView(entry.target);
-      const now = performance.now();
-
-      if (inView) {
-        if (!activeSince.has(postId)) {
-          activeSince.set(postId, now);
+    function snapshotActive() {
+      if (activePostId && activeSince) {
+        const elapsed = Math.round(performance.now() - activeSince);
+        if (elapsed >= 300) {
+          recordElapsed(activePostId, elapsed);
         }
-      } else {
-        if (activeSince.has(postId)) {
-          const start = activeSince.get(postId);
-          activeSince.delete(postId);
-          const elapsed = Math.round(now - start);
-          if (elapsed >= 300) {
-            recordElapsed(postId, elapsed);
-          }
+      }
+      activePostId = null;
+      activeSince = 0;
+    }
+
+    function updateFocalDwell() {
+      const now = performance.now();
+      const nextId = findNearestCenterPostId();
+
+      if (nextId !== activePostId) {
+        // Focal post changed (user moved to next post, went idle, or blurred)
+        snapshotActive();
+        if (nextId) {
+          activePostId = nextId;
+          activeSince = now;
+        }
+      } else if (activePostId && activeSince) {
+        // Continuous reading on the same focal post: chunk every 2.5s
+        const chunk = Math.round(now - activeSince);
+        if (chunk >= 2500) {
+          recordElapsed(activePostId, chunk);
+          activeSince = now;
         }
       }
     }
@@ -215,8 +281,10 @@
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
-          checkEntry(entry);
+          const postId = elToId.get(entry.target);
+          if (postId) idToEl.set(postId, entry.target);
         }
+        updateFocalDwell();
       },
       {
         root: null,
@@ -225,39 +293,36 @@
       }
     );
 
-    heartbeatTimer = setInterval(() => {
-      if (document.visibilityState !== 'visible') return;
-      const now = performance.now();
-      for (const [postId, start] of activeSince) {
-        const el = idToEl.get(postId);
-        if (!el || !isElementInView(el)) {
-          activeSince.delete(postId);
-          const elapsed = Math.round(now - start);
-          if (elapsed >= 300) recordElapsed(postId, elapsed);
-          continue;
-        }
-        const chunk = Math.round(now - start);
-        if (chunk >= 2000) {
-          recordElapsed(postId, chunk);
-          activeSince.set(postId, now);
-        }
+    watchdogTimer = setInterval(() => {
+      updateFocalDwell();
+    }, 500);
+
+    function onScrollStart() {
+      if (!isScrolling) {
+        isScrolling = true;
+        snapshotActive();
       }
-    }, 2500);
+      if (scrollEndTimer) clearTimeout(scrollEndTimer);
+      scrollEndTimer = setTimeout(onScrollEnd, 200);
+    }
+
+    function onScrollEnd() {
+      if (scrollEndTimer) {
+        clearTimeout(scrollEndTimer);
+        scrollEndTimer = null;
+      }
+      isScrolling = false;
+      updateFocalDwell();
+    }
+
+    window.addEventListener('scroll', onScrollStart, { passive: true });
+    if ('onscrollend' in window) {
+      window.addEventListener('scrollend', onScrollEnd, { passive: true });
+    }
 
     function scheduleFlush() {
       if (flushTimer) return;
       flushTimer = setTimeout(flush, 2000);
-    }
-
-    function snapshotAllActive() {
-      const now = performance.now();
-      for (const [postId, start] of activeSince) {
-        const elapsed = Math.round(now - start);
-        if (elapsed >= 200) {
-          recordElapsed(postId, elapsed);
-        }
-      }
-      activeSince.clear();
     }
 
     function flush() {
@@ -291,25 +356,21 @@
 
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState !== 'visible') {
-        snapshotAllActive();
+        snapshotActive();
         flush();
       } else {
-        const now = performance.now();
-        for (const [postId, el] of idToEl) {
-          if (isElementInView(el)) {
-            activeSince.set(postId, now);
-          }
-        }
+        recordActivity();
+        updateFocalDwell();
       }
     });
 
     window.addEventListener('pagehide', () => {
-      snapshotAllActive();
+      snapshotActive();
       flush();
     });
 
     window.addEventListener('beforeunload', () => {
-      snapshotAllActive();
+      snapshotActive();
       flush();
     });
 
@@ -319,12 +380,10 @@
         elToId.set(element, postId);
         idToEl.set(postId, element);
         observer.observe(element);
-        if (isElementInView(element) && !activeSince.has(postId)) {
-          activeSince.set(postId, performance.now());
-        }
+        updateFocalDwell();
       },
       flushNow() {
-        snapshotAllActive();
+        snapshotActive();
         flush();
       },
     };

@@ -597,7 +597,6 @@
       const post = extractListItem(item);
       if (post && !tooShort.has(post.postId)) {
         tracker.observe(item, post.postId);
-        dwellTracker.observe(item, post.postId);
         inFlight.add(post.postId);
         trackedKeys.add(post.postId);
         sendPost(post, computePriorityNow(item));
@@ -605,8 +604,14 @@
       } else if (item.dataset.sairKey && seen.has(item.dataset.sairKey) && !tooShort.has(item.dataset.sairKey)) {
         // Already-seen post in a fresh DOM element (LinkedIn virtualizes).
         tracker.observe(item, item.dataset.sairKey);
-        dwellTracker.observe(item, item.dataset.sairKey);
       }
+
+      // ONLY start detecting dwell time AFTER the post has been scored:
+      const key = item.dataset.sairKey || (post && post.postId);
+      if (key && scored.has(key) && !scored.get(key).error && !tooShort.has(key)) {
+        dwellTracker.observe(item, key);
+      }
+
       paintBadge(item);
     }
     if (captured) log(`-> sent ${captured} new post(s) to background`);
@@ -634,6 +639,17 @@
     if (rec.platform !== 'linkedin') return false;
     scored.set(rec.postId, rec);
     inFlight.delete(rec.postId);
+
+    // Dwell tracking begins now that the post is scored:
+    if (!rec.error && !tooShort.has(rec.postId)) {
+      for (const item of findFeedItems()) {
+        if (item.dataset.sairKey === rec.postId) {
+          dwellTracker.observe(item, rec.postId);
+          break;
+        }
+      }
+    }
+
     paintAll();
     return false;
   });

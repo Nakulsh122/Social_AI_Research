@@ -172,13 +172,11 @@ function render(result) {
   const total = list.length;
   const scored = list.filter((r) => r.detector).length;
   const errs = list.filter((r) => r.error).length;
-  const tw = list.filter((r) => r.platform === 'twitter').length;
-  const li = list.filter((r) => r.platform === 'linkedin').length;
   const userTag = result.userId ? ` · user=${result.userId.slice(0, 12)}…` : '';
-  $('#stats').textContent = `${total} observations · ${scored} scored · ${errs} errors · ${tw} X · ${li} LinkedIn${userTag}`;
+  $('#stats').textContent = `${total} observations · ${scored} scored · ${errs} errors${userTag}`;
 
   if (!total) {
-    $('#list').innerHTML = '<li class="empty">No observations recorded yet.<br>Open x.com or linkedin.com and scroll your feed.</li>';
+    $('#list').innerHTML = '<li class="empty">No observations recorded yet.<br>Open linkedin.com and scroll your feed.</li>';
     return;
   }
 
@@ -186,17 +184,11 @@ function render(result) {
   const recent = list.slice(0, 50);
   $('#list').innerHTML = recent.map((r) => {
     const e = r.engagement || {};
-    const eng = r.platform === 'twitter'
-      ? `${fmtNum(e.likes)} likes · ${fmtNum(e.retweets)} reposts · ${fmtNum(e.replies)} replies · ${fmtNum(e.views)} views`
-      : `${fmtNum(e.likes)} likes · ${fmtNum(e.comments)} comments · ${fmtNum(e.reposts)} reposts`;
+    const eng = `${fmtNum(e.likes)} likes · ${fmtNum(e.comments)} comments · ${fmtNum(e.reposts)} reposts`;
     const text = (r.text || '').trim();
     // Prefer human-readable display name when extracted; fall back to the
     // platform handle/slug so older rows still show something.
-    const author = r.authorDisplayName
-      ? r.authorDisplayName
-      : r.author
-        ? (r.platform === 'twitter' ? '@' + r.author : r.author)
-        : '';
+    const author = r.authorDisplayName || r.author || '';
     const s = classifyScore(r);
     const scoreClass = s.state === 'err' ? 'score err' : s.state === 'pending' ? 'score pending' : 'score';
     const tooltipAttr = s.tooltip ? ` title="${escapeHtml(s.tooltip)}"` : '';

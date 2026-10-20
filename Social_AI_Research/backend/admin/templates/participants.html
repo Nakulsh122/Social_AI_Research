@@ -6,17 +6,26 @@
 <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-8">
   <div>
     <h1 class="text-2xl font-bold tracking-tight">Participants</h1>
-    <p class="text-sm text-zinc-500 mt-1">All enrolled participants and their activity totals.</p>
+    <p class="text-sm text-zinc-500 mt-1">Study participants, local US timezones, and 5/7 active days compliance.</p>
   </div>
-  <div class="flex flex-col items-end gap-3">
+  <div class="flex flex-col sm:flex-row items-end sm:items-center gap-3">
     <div class="flex gap-2 text-sm">
       <a href="/admin/participants" class="px-3 py-1 rounded-md border {% if not filters.group %}bg-zinc-800 border-zinc-700 text-white{% else %}border-zinc-800 text-zinc-400 hover:text-white{% endif %}">All</a>
       <a href="/admin/participants?group=control" class="px-3 py-1 rounded-md border {% if filters.group == 'control' %}bg-zinc-800 border-zinc-700 text-white{% else %}border-zinc-800 text-zinc-400 hover:text-white{% endif %}">Control</a>
       <a href="/admin/participants?group=treatment" class="px-3 py-1 rounded-md border {% if filters.group == 'treatment' %}bg-zinc-800 border-zinc-700 text-white{% else %}border-zinc-800 text-zinc-400 hover:text-white{% endif %}">Treatment</a>
     </div>
-    <p class="text-xs text-zinc-500 tabular-nums">
-      <span class="text-zinc-300 font-semibold">{{ total }}</span> total · page <span class="text-zinc-300 font-semibold">{{ page }}</span> of <span class="text-zinc-300 font-semibold">{{ total_pages }}</span>
-    </p>
+
+    <button onclick="window.location.reload()" type="button"
+            class="inline-flex items-center gap-1.5 px-3 py-1 rounded-md border border-zinc-800 bg-zinc-900/60 hover:border-zinc-700 hover:text-white text-xs font-medium text-zinc-300 transition-colors">
+      <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      Refresh
+    </button>
+
+    <a href="/admin/export/daily_compliance.csv"
+       class="inline-flex items-center gap-1.5 px-3 py-1 rounded-md border border-zinc-800 bg-zinc-900/60 hover:border-zinc-700 hover:text-white text-xs font-medium text-zinc-300 transition-colors">
+      <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Export CSV
+    </a>
   </div>
 </div>
 
@@ -27,10 +36,11 @@
         <tr class="text-left text-[10px] uppercase tracking-[0.1em] text-zinc-500 font-semibold">
           <th class="px-5 py-3">Participant ID</th>
           <th class="px-5 py-3">External ID</th>
-          <th class="px-5 py-3">Role</th>
           <th class="px-5 py-3">Group</th>
-          <th class="px-5 py-3">Registered</th>
-          <th class="px-5 py-3 text-right">Observations</th>
+          <th class="px-5 py-3">Timezone</th>
+          <th class="px-5 py-3">Active Days (5/7)</th>
+          <th class="px-5 py-3">7-Day Matrix</th>
+          <th class="px-5 py-3 text-right">Today Active</th>
           <th class="px-5 py-3 text-right">Interactions</th>
           <th class="px-5 py-3 text-right">Total Dwell</th>
           <th class="px-5 py-3">Last seen</th>
@@ -42,10 +52,7 @@
           <td class="px-5 py-3">
             <a href="/admin/participants/{{ r.participantId }}" class="font-mono text-xs text-zinc-200 hover:text-rutgers-light transition-colors">{{ r.participantId }}</a>
           </td>
-          <td class="px-5 py-3 text-zinc-400">{{ r.externalId or '—' }}</td>
-          <td class="px-5 py-3">
-            <span class="inline-flex px-2 py-0.5 rounded-md bg-zinc-800/80 text-zinc-400 text-[10px] uppercase tracking-wider font-semibold">{{ r.role }}</span>
-          </td>
+          <td class="px-5 py-3 text-zinc-400 text-xs">{{ r.externalId or '—' }}</td>
           <td class="px-5 py-3">
             {% if r.group == 'control' %}
               <span class="inline-flex px-2 py-0.5 rounded-md bg-zinc-800/80 text-zinc-300 text-[10px] uppercase tracking-wider font-semibold">Control</span>
@@ -55,19 +62,53 @@
               <span class="inline-flex px-2 py-0.5 rounded-md bg-zinc-800/30 text-zinc-500 text-[10px] uppercase tracking-wider font-semibold">{{ r.group }}</span>
             {% endif %}
           </td>
-          <td class="px-5 py-3 text-zinc-400 whitespace-nowrap text-xs">
-            {{ r.createdAt.strftime('%b %d, %Y · %H:%M') if r.createdAt else '—' }}
+          <td class="px-5 py-3 text-zinc-400 text-xs font-mono">
+            {{ r.timezone }}
           </td>
-          <td class="px-5 py-3 text-right tabular-nums text-zinc-100 font-medium">{{ r.observationCount }}</td>
-          <td class="px-5 py-3 text-right tabular-nums text-zinc-100 font-medium">{{ r.interactionCount }}</td>
+          <td class="px-5 py-3 whitespace-nowrap">
+            {% set c = r.compliance %}
+            <div class="flex items-center gap-2">
+              <span class="font-mono text-xs font-semibold text-zinc-200">{{ c.complianceRatio }}</span>
+              <span class="inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border {{ c.badgeClass }}">
+                {{ c.statusLabel }}
+              </span>
+            </div>
+          </td>
+          <td class="px-5 py-3">
+            {# 7-day mini strip: D1 to D7 #}
+            <div class="flex items-center gap-1" title="7-Day Activity: Green = ≥10 min, Gray = <10 min, Outline = Future">
+              {% for day in r.compliance.matrix %}
+                {% if day.qualifies %}
+                  <div class="w-3.5 h-5 rounded bg-human" title="Day {{ day.day }} ({{ day.dateFormatted }}): {{ day.activeMinutes }}m active ({{ day.interactions }} actions) ✅"></div>
+                {% elif day.isFuture %}
+                  <div class="w-3.5 h-5 rounded border border-zinc-700 bg-transparent" title="Day {{ day.day }} ({{ day.dateFormatted }}): Future ⏳"></div>
+                {% elif day.activeMinutes > 0 %}
+                  <div class="w-3.5 h-5 rounded bg-amber-500/50" title="Day {{ day.day }} ({{ day.dateFormatted }}): {{ day.activeMinutes }}m active (needs ≥10m)"></div>
+                {% else %}
+                  <div class="w-3.5 h-5 rounded bg-zinc-800" title="Day {{ day.day }} ({{ day.dateFormatted }}): 0m active"></div>
+                {% endif %}
+              {% endfor %}
+            </div>
+          </td>
+          <td class="px-5 py-3 text-right tabular-nums text-xs">
+            {% if r.compliance.todayActiveMinutes > 0 %}
+              <span class="font-semibold text-zinc-200">{{ r.compliance.todayActiveMinutes }}m</span>
+              {% if r.compliance.todayInteractions > 0 %}
+                <span class="text-[10px] text-zinc-500">({{ r.compliance.todayInteractions }}x)</span>
+              {% endif %}
+            {% else %}
+              <span class="text-zinc-600">0m</span>
+            {% endif %}
+          </td>
+          <td class="px-5 py-3 text-right tabular-nums text-zinc-100 font-medium text-xs">{{ r.interactionCount }}</td>
           <td class="px-5 py-3 text-right tabular-nums text-zinc-300 font-medium font-mono text-xs">{{ r.totalDwellFormatted }}</td>
           <td class="px-5 py-3 text-zinc-400 whitespace-nowrap text-xs">
-            {{ r.lastSeen.strftime('%b %d, %Y · %H:%M') if r.lastSeen else '—' }}
+            {{ r.lastSeen.strftime('%b %d · %H:%M') if r.lastSeen else '—' }}
           </td>
         </tr>
         {% else %}
         <tr>
-          <td colspan="9" class="px-5 py-12 text-center text-sm text-zinc-500">
+          <td colspan="10" class="px-5 py-12 text-center text-sm text-zinc-500">
             No participants have registered yet.
           </td>
         </tr>

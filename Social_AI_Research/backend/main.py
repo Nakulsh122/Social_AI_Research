@@ -158,6 +158,7 @@ def _client_ip(request: Request) -> str:
 
 class RegisterRequest(BaseModel):
     externalId: str | None = None
+    timezone: str | None = None
 
 
 @app.post("/register")
@@ -177,13 +178,16 @@ async def register(request: Request) -> dict:
     participants bypassing re-registration do not consume a rate-limit slot.
     """
     external_id: str | None = None
+    client_tz: str | None = None
     try:
         raw = await request.body()
         if raw:
             payload = RegisterRequest.model_validate_json(raw)
             external_id = (payload.externalId or "").strip() or None
+            client_tz = (payload.timezone or "").strip() or None
     except Exception:
         external_id = None
+        client_tz = None
 
     now = datetime.now(timezone.utc)
 
@@ -194,13 +198,16 @@ async def register(request: Request) -> dict:
         if existing:
             # Rotate the token so the old install can no longer make requests.
             new_token = secrets.token_urlsafe(32)
+            update_set: dict[str, Any] = {
+                "token": new_token,
+                "lastReRegisteredAt": now,
+            }
+            if client_tz:
+                update_set["timezone"] = client_tz
             await db.state.db.participants.update_one(
                 {"_id": existing["_id"]},
                 {
-                    "$set": {
-                        "token": new_token,
-                        "lastReRegisteredAt": now,
-                    },
+                    "$set": update_set,
                     "$inc": {"reRegisterCount": 1},
                 },
             )
@@ -240,6 +247,7 @@ async def register(request: Request) -> dict:
         "token": token,
         "role": "participant",
         "group": group,
+        "timezone": client_tz or "America/New_York",
         "active": True,
         "createdAt": now,
         "source": "self-register",
@@ -451,37 +459,54 @@ async def record_dwell(
         if not has_obs and not is_scored:
             continue
 
+        is_anomaly = it.dwellMs >= 60000
         valid_docs.append({
             "userId": user_id,
             "platform": it.platform,
             "postId": it.postId,
             "dwellMs": it.dwellMs,
+            "isAnomaly": is_anomaly,
             "occurredAt": it.occurredAt,
             "recordedAt": now,
         })
 
+        session_entry = {
+            "ms": it.dwellMs,
+            "at": now,
+            "anomaly": is_anomaly,
+        }
+
+        set_fields = {"lastDwellAt": now}
+        if is_anomaly:
+            set_fields["hasAnomaly"] = True
+
+        update_ops: dict[str, Any] = {
+            "$inc": {"dwellMs": it.dwellMs, "dwellCount": 1},
+            "$set": set_fields,
+            "$push": {
+                "dwellSessions": {
+                    "$each": [session_entry],
+                    "$slice": -10,
+                }
+            },
+        }
+
         if has_obs:
             await db.state.db.observations.update_one(
                 {"_id": has_obs["_id"]},
-                {
-                    "$inc": {"dwellMs": it.dwellMs, "dwellCount": 1},
-                    "$set": {"lastDwellAt": now},
-                },
+                update_ops,
             )
         else:
+            update_ops["$setOnInsert"] = {
+                "userId": user_id,
+                "platform": it.platform,
+                "postId": it.postId,
+                "recordedAt": now,
+                "seenAt": it.occurredAt,
+            }
             await db.state.db.observations.update_one(
                 {"userId": user_id, "platform": it.platform, "postId": it.postId},
-                {
-                    "$inc": {"dwellMs": it.dwellMs, "dwellCount": 1},
-                    "$set": {"lastDwellAt": now},
-                    "$setOnInsert": {
-                        "userId": user_id,
-                        "platform": it.platform,
-                        "postId": it.postId,
-                        "recordedAt": now,
-                        "seenAt": it.occurredAt,
-                    },
-                },
+                update_ops,
                 upsert=True,
             )
 

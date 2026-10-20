@@ -6,12 +6,23 @@
 
 {% block content %}
 
-<div class="flex flex-col md:flex-row md:items-end md:justify-between gap-2 mb-8">
+<div class="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-8">
   <div>
     <h1 class="text-2xl font-bold tracking-tight">Overview</h1>
     <p class="text-sm text-zinc-500 mt-1">A live snapshot of the SAIR research dataset.</p>
   </div>
-  <p class="text-xs text-zinc-600 uppercase tracking-[0.1em]">Auto-refreshes when you reload</p>
+  <div class="flex items-center gap-3">
+    <button onclick="window.location.reload()" type="button"
+            class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg border border-zinc-800 bg-zinc-900/60 hover:border-zinc-700 hover:text-white text-xs font-medium text-zinc-300 transition-colors">
+      <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      Refresh
+    </button>
+    <a href="/admin/export/all.zip"
+       class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-rutgers hover:bg-rutgers-light text-white text-xs font-semibold shadow-lg shadow-rutgers/20 transition-all">
+      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Export All Data (ZIP)
+    </a>
+  </div>
 </div>
 
 {# ─────────── Top metrics ─────────── #}
@@ -101,30 +112,95 @@
 
 </div>
 
+{# ─────────── Recent Participant Activity Log ─────────── #}
+<div class="rounded-xl border border-zinc-800/80 bg-zinc-900/50 overflow-hidden mb-6">
+  <div class="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
+    <div class="flex items-center gap-2">
+      <div class="w-2.5 h-2.5 rounded-full bg-rutgers animate-pulse"></div>
+      <h2 class="text-sm font-semibold tracking-tight">Participant Activity Log (Recent Engagements)</h2>
+    </div>
+    <span class="text-xs text-zinc-500">Likes, Comments, Reposts & Shares</span>
+  </div>
+  <div class="overflow-x-auto scrollbar-thin">
+    <table class="w-full text-sm">
+      <thead class="bg-zinc-900/60 border-b border-zinc-800/80 text-[10px] uppercase tracking-[0.1em] text-zinc-500 font-semibold">
+        <tr>
+          <th class="px-5 py-3 text-left">Time (Local US)</th>
+          <th class="px-5 py-3 text-left">Participant ID</th>
+          <th class="px-5 py-3 text-left">External ID</th>
+          <th class="px-5 py-3 text-left">Group</th>
+          <th class="px-5 py-3 text-left">Action</th>
+          <th class="px-5 py-3 text-left">Platform</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-zinc-800/60">
+        {% for ev in recent_events %}
+        <tr class="hover:bg-zinc-800/30 transition-colors">
+          <td class="px-5 py-3 text-zinc-400 text-xs whitespace-nowrap">{{ ev.recordedAtLocal }}</td>
+          <td class="px-5 py-3 font-mono text-xs">
+            <a href="/admin/participants/{{ ev.userId }}" class="text-zinc-200 hover:text-rutgers-light transition-colors">{{ ev.userId }}</a>
+          </td>
+          <td class="px-5 py-3 text-zinc-400 text-xs">{{ ev.externalId or '—' }}</td>
+          <td class="px-5 py-3">
+            {% if ev.group == 'treatment' %}
+              <span class="inline-flex px-2 py-0.5 rounded-md bg-blue-900/30 text-blue-400 text-[10px] font-semibold uppercase">Treatment</span>
+            {% else %}
+              <span class="inline-flex px-2 py-0.5 rounded-md bg-zinc-800 text-zinc-300 text-[10px] font-semibold uppercase">Control</span>
+            {% endif %}
+          </td>
+          <td class="px-5 py-3">
+            <span class="inline-flex px-2.5 py-0.5 rounded-md text-[11px] font-medium border {{ ev.badgeClass }}">
+              {{ ev.actionLabel }}
+            </span>
+          </td>
+          <td class="px-5 py-3 text-zinc-400 text-xs capitalize">{{ ev.platform }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6" class="px-5 py-8 text-center text-sm text-zinc-500">
+            No active engagement events recorded yet.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
 {# ─────────── Exports ─────────── #}
 <div class="rounded-xl border border-zinc-800/80 bg-zinc-900/50 p-5">
   <div class="flex items-baseline justify-between mb-4">
-    <h2 class="text-sm font-semibold tracking-tight">Exports</h2>
-    <span class="text-xs text-zinc-500">Streamed downloads</span>
+    <h2 class="text-sm font-semibold tracking-tight">Data Exports</h2>
+    <span class="text-xs text-zinc-500">One-click downloads</span>
   </div>
-  <div class="flex flex-wrap gap-2">
+  <div class="flex flex-wrap gap-2.5">
+    <a href="/admin/export/all.zip"
+       class="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-rutgers hover:bg-rutgers-light text-white text-sm font-semibold shadow-md shadow-rutgers/20 transition-all">
+      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      All Data Package (ZIP)
+    </a>
+    <a href="/admin/export/daily_compliance.csv"
+       class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-zinc-800/80 border border-zinc-700/80 text-zinc-200 hover:bg-zinc-700 hover:text-white text-sm font-medium transition-colors">
+      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      daily_compliance.csv
+    </a>
     <a href="/admin/export/observations.csv"
-       class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-rutgers/10 border border-rutgers/30 text-rutgers-light hover:bg-rutgers hover:text-white hover:border-rutgers text-sm font-medium transition-colors">
+       class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-zinc-800/80 border border-zinc-700/80 text-zinc-200 hover:bg-zinc-700 hover:text-white text-sm font-medium transition-colors">
       <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       observations.csv
     </a>
     <a href="/admin/export/interactions.csv"
-       class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-rutgers/10 border border-rutgers/30 text-rutgers-light hover:bg-rutgers hover:text-white hover:border-rutgers text-sm font-medium transition-colors">
+       class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-zinc-800/80 border border-zinc-700/80 text-zinc-200 hover:bg-zinc-700 hover:text-white text-sm font-medium transition-colors">
       <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       interactions.csv
     </a>
     <a href="/admin/export/dwell.csv"
-       class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-rutgers/10 border border-rutgers/30 text-rutgers-light hover:bg-rutgers hover:text-white hover:border-rutgers text-sm font-medium transition-colors">
+       class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-zinc-800/80 border border-zinc-700/80 text-zinc-200 hover:bg-zinc-700 hover:text-white text-sm font-medium transition-colors">
       <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       dwell.csv
     </a>
     <a href="/admin/export/full.json"
-       class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-rutgers/10 border border-rutgers/30 text-rutgers-light hover:bg-rutgers hover:text-white hover:border-rutgers text-sm font-medium transition-colors">
+       class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-zinc-800/80 border border-zinc-700/80 text-zinc-200 hover:bg-zinc-700 hover:text-white text-sm font-medium transition-colors">
       <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       full_export.json
     </a>

@@ -2,7 +2,7 @@
   "name": "social-ai-research-extension",
   "version": "1.0.5",
   "private": true,
-  "description": "Chrome extension for Study 1: scrapes Twitter/X and LinkedIn feed posts and scores them via the Pangram API.",
+  "description": "Chrome extension for Study 1: scrapes LinkedIn feed posts and scores them via the Pangram API.",
   "scripts": {
     "build": "node build.js"
   }
