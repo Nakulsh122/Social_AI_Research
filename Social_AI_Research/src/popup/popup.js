@@ -84,7 +84,13 @@ async function submitSetup() {
       }
     }
   } catch (e) {
-    errBox.textContent = `Could not link: ${e?.message || e}. Check the ID and try again.`;
+    const rawMsg = String(e?.message || e);
+    const isNetworkErr = /failed to fetch|network error|failed to reach|unable to reach/i.test(rawMsg);
+    if (isNetworkErr) {
+      errBox.textContent = 'Unable to reach the research server. Please check your internet connection, disable any active VPN or ad-blocker, and try again.';
+    } else {
+      errBox.textContent = `Could not link: ${rawMsg}. Check the ID and try again.`;
+    }
     btn.disabled = false;
     btn.textContent = 'Continue';
   }

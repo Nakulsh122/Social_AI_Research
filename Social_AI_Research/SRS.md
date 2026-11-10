@@ -1,4 +1,4 @@
-# Software Requirements & System Architecture Specification (SRS)
+`# Software Requirements & System Architecture Specification (SRS)
 
 This document provides a detailed, step-by-step technical explanation of the Social AI Research project. It breaks down the system lifecycle from the moment a user scrolls to a post, all the way to how the data is processed, scored, stored, and visualized.
 
@@ -108,4 +108,17 @@ The system logs user behavior for downstream research analysis.
 - **File:** `backend/main.py`
 - **Function:** `@app.post("/interactions")`
 - **Flow:** If a user clicks Like, Comment, or Repost on a scored post, the extension catches this click and logs it in the `interactions` MongoDB collection, allowing researchers to correlate AI scores with user engagement.
+
+### 5.3 System Metrics & Backend Monitoring (/health & /admin/mets)
+- **Files:** `backend/monitoring.py`, `backend/main.py`, `backend/admin/router.py`, `backend/admin/templates/metrics.html`
+- **Endpoints:**
+  - `GET /health`: Lightweight, public health-check returning service status, uptime, requests served, and MongoDB ping.
+  - `GET /admin/mets` & `GET /admin/metrics`: Protected admin monitoring dashboard (requires admin authentication).
+  - `GET /admin/api/mets` & `GET /admin/api/metrics` (or `?format=json`): Protected JSON API returning real-time metrics.
+  - `GET /mets`: Root convenience redirect to `/admin/mets` (redirects to `/admin/login` if not authenticated).
+- **Architecture & In-Memory Isolation:**
+  - Metrics are tracked strictly in process memory using Python data structures (counters, timers, sliding deques) and native Win32/POSIX OS calls (`ctypes` for CPU & memory, `shutil.disk_usage`).
+  - **Zero Database Writes:** No metrics, request logs, or counters are written to MongoDB collections. The primary research database remains completely clean and unaffected.
+  - **Metrics Captured:** Total requests served, in-flight requests, requests/min, success/error rates, endpoint latencies (avg/min/max), host CPU %, process CPU %, system RAM %, process RSS memory, disk space, active thread count, and a rolling log of recent requests.
+
 

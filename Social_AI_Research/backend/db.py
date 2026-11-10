@@ -1,7 +1,10 @@
+import logging
 import os
 
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import IndexModel, ASCENDING
+
+logger = logging.getLogger("uvicorn.error")
 
 
 class _Holder:
@@ -15,9 +18,28 @@ state = _Holder()
 async def connect() -> None:
     uri = os.environ.get("MONGO_URI", "mongodb://localhost:27017")
     name = os.environ.get("MONGO_DB", "sair")
-    state.client = AsyncIOMotorClient(uri)
+    timeout_ms = int(os.environ.get("MONGO_TIMEOUT_MS", "2000"))
+    state.client = AsyncIOMotorClient(uri, serverSelectionTimeoutMS=timeout_ms)
     state.db = state.client[name]
-    await _ensure_indexes()
+    try:
+        await _ensure_indexes()
+    except Exception as e:
+        logger.warning(
+            "MongoDB is not currently reachable at %s. Running in offline/fallback mode: %s",
+            uri,
+            e,
+        )
+
+
+async def is_connected() -> bool:
+    """Quick 1-second ping to check if MongoDB is alive without blocking."""
+    if state.client is None or state.db is None:
+        return False
+    try:
+        await state.client.admin.command("ping", maxTimeMS=1000)
+        return True
+    except Exception:
+        return False
 
 
 async def disconnect() -> None:
@@ -56,6 +78,7 @@ async def _ensure_indexes() -> None:
     await state.db.participants.create_indexes([
         IndexModel([("token", ASCENDING)], unique=True, name="token_unique"),
         IndexModel([("participantId", ASCENDING)], unique=True, name="participantId_unique"),
+        IndexModel([("blocked", ASCENDING)], sparse=True, name="blocked"),
     ])
     # Sparse+unique: not all participants have an externalId, but when they
     # do, it must be unique. If existing data has duplicates from earlier runs,
@@ -113,5 +136,10 @@ async def _ensure_indexes() -> None:
         ),
         IndexModel([("recordedAt", ASCENDING)], name="recordedAt"),
         IndexModel([("platform", ASCENDING)], name="platform"),
+    ])
+    # Blocked participants / persistent blocklist: Prolific IDs, Mongo IDs, or participant IDs.
+    await state.db.blocked_participants.create_indexes([
+        IndexModel([("identifier", ASCENDING)], unique=True, name="identifier_unique"),
+        IndexModel([("blockedAt", ASCENDING)], name="blockedAt"),
     ])
 

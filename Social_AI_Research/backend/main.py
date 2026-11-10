@@ -1,7 +1,11 @@
+import asyncio
 import hashlib
+import logging
 import os
+from pathlib import Path
 import random
 import secrets
+import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -11,12 +15,18 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Silence verbose third-party HTTP request logs (httpx/httpcore)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from pymongo.errors import BulkWriteError, DuplicateKeyError
 
 import db
+import monitoring
 import pangram
 import rate_limit
 from auth import current_participant
@@ -28,9 +38,43 @@ import admin
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await db.connect()
+    export_task = None
+    monitor_task = None
+    # Hourly export runs automatically in the background by default (no manual action needed).
+    export_enabled = os.environ.get("ENABLE_HOURLY_EXPORT", "true").lower() not in ("false", "0", "no", "off")
+    if export_enabled:
+        import hourly_export
+        interval = int(os.environ.get("EXPORT_INTERVAL_SECONDS", "3600"))
+        zip_target = Path(__file__).resolve().parent / "exports.zip"
+        export_task = asyncio.create_task(
+            hourly_export.run_daemon_for_db(
+                db_getter=lambda: db.state.db,
+                out_path=zip_target,
+                interval_seconds=interval,
+                initial_delay=5.0,
+            )
+        )
+    # Background phone alert monitor (fires via ntfy.sh when MongoDB crashes)
+    import alerts
+    monitor_interval = int(os.environ.get("ALERT_INTERVAL_SECONDS", "30"))
+    monitor_task = asyncio.create_task(
+        alerts.run_mongo_health_monitor(interval_seconds=monitor_interval)
+    )
     try:
         yield
     finally:
+        if monitor_task:
+            monitor_task.cancel()
+            try:
+                await monitor_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        if export_task:
+            export_task.cancel()
+            try:
+                await export_task
+            except (asyncio.CancelledError, Exception):
+                pass
         await db.disconnect()
 
 
@@ -45,9 +89,85 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# In-memory traffic & latency monitoring middleware (zero DB overhead)
+@app.middleware("http")
+async def monitor_requests_middleware(request: Request, call_next):
+    start = time.perf_counter()
+    monitoring.record_in_flight_start()
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        return response
+    except Exception:
+        status_code = 500
+        raise
+    finally:
+        duration_ms = (time.perf_counter() - start) * 1000
+        client_ip = _client_ip(request)
+        monitoring.record_request(
+            method=request.method,
+            path=request.url.path,
+            status_code=status_code,
+            duration_ms=duration_ms,
+            client_ip=client_ip,
+        )
+        monitoring.record_in_flight_end()
+
 # Researcher dashboard — all routes live under /admin/* and are self-contained
 # in the admin/ package. Auth is via a single shared password (ADMIN_SECRET).
 admin.setup(app)
+
+from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
+from fastapi.responses import HTMLResponse, JSONResponse
+
+@app.exception_handler(ServerSelectionTimeoutError)
+@app.exception_handler(ConnectionFailure)
+async def mongo_connection_exception_handler(request: Request, exc: Exception):
+    logging.getLogger("uvicorn.error").warning("MongoDB connection failure intercepted: %s", exc)
+    if request.url.path.startswith("/admin"):
+        return HTMLResponse(
+            status_code=503,
+            content="""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><title>Database Offline - SAIR Admin</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-zinc-950 text-zinc-100 flex items-center justify-center min-h-screen p-4 font-sans">
+  <div class="max-w-md w-full bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-2xl">
+    <div class="flex items-center gap-3 text-rose-500 mb-3">
+      <span class="p-2 rounded-xl bg-rose-500/10 border border-rose-500/20 text-2xl">⚠️</span>
+      <div>
+        <h1 class="text-base font-semibold text-zinc-100">MongoDB Disconnected</h1>
+        <p class="text-[11px] text-zinc-500">SAIR Admin Portal is Running</p>
+      </div>
+    </div>
+    <p class="text-xs text-zinc-300 leading-relaxed mb-4">
+      The backend is active, but MongoDB is not reachable (connection refused or timed out).
+    </p>
+    <div class="bg-black/60 border border-zinc-800 rounded-lg p-3 mb-5">
+      <div class="text-[11px] text-zinc-400 mb-1.5 font-medium">To restart MongoDB on server:</div>
+      <code class="text-xs text-rose-300 font-mono select-all">sudo systemctl restart mongod</code>
+    </div>
+    <div class="flex items-center justify-between">
+      <a href="/admin/" class="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold rounded-lg text-zinc-200 transition-colors">
+        Go to Admin Overview
+      </a>
+      <a href="/admin/mets" class="text-xs text-zinc-400 hover:text-zinc-200 transition-colors">
+        View System Metrics &rarr;
+      </a>
+    </div>
+  </div>
+</body>
+</html>
+            """,
+        )
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Database unavailable: MongoDB is disconnected or timed out. Please check server status."},
+    )
 
 
 # ─────────────────────────── Models ───────────────────────────
@@ -193,8 +313,23 @@ async def register(request: Request) -> dict:
 
     # ── Re-registration path: externalId already exists ──────────────────────
     # Check before rate-limiting so returning participants aren't penalised.
+    current_cohort = int(os.environ.get("CURRENT_COHORT", os.environ.get("CURRENT_ROUND", 1)))
+
     if external_id:
+        # Check if participant is in blocklist
+        block_entry = await db.state.db.blocked_participants.find_one({"identifier": external_id})
         existing = await db.state.db.participants.find_one({"externalId": external_id})
+        if block_entry or (existing and existing.get("blocked")):
+            if existing and not existing.get("blocked"):
+                await db.state.db.participants.update_one(
+                    {"_id": existing["_id"]},
+                    {"$set": {"blocked": True, "blockedReason": (block_entry and block_entry.get("reason")) or "Blocked"}}
+                )
+            raise HTTPException(
+                status_code=403,
+                detail="Participant is blocked from this study.",
+            )
+
         if existing:
             # Rotate the token so the old install can no longer make requests.
             new_token = secrets.token_urlsafe(32)
@@ -202,6 +337,10 @@ async def register(request: Request) -> dict:
                 "token": new_token,
                 "lastReRegisteredAt": now,
             }
+            if "enrolledAt" not in existing:
+                update_set["enrolledAt"] = now
+            if "cohort" not in existing:
+                update_set["cohort"] = existing.get("round", current_cohort)
             if client_tz:
                 update_set["timezone"] = client_tz
             await db.state.db.participants.update_one(
@@ -215,6 +354,7 @@ async def register(request: Request) -> dict:
                 "participantId": existing["participantId"],
                 "token": new_token,
                 "group": existing["group"],
+                "cohort": existing.get("cohort", existing.get("round", current_cohort)),
                 "createdAt": existing["createdAt"].isoformat()
                     if hasattr(existing.get("createdAt"), "isoformat")
                     else str(existing.get("createdAt", "")),
@@ -247,9 +387,11 @@ async def register(request: Request) -> dict:
         "token": token,
         "role": "participant",
         "group": group,
+        "cohort": current_cohort,
         "timezone": client_tz or "America/New_York",
         "active": True,
         "createdAt": now,
+        "enrolledAt": now,
         "source": "self-register",
         "reRegisterCount": 0,
     }
@@ -284,6 +426,7 @@ async def register(request: Request) -> dict:
         "participantId": participant_id,
         "token": token,
         "group": group,
+        "cohort": current_cohort,
         "createdAt": now.isoformat(),
         "externalId": external_id,
         "reRegistered": False,
@@ -292,7 +435,13 @@ async def register(request: Request) -> dict:
 
 @app.get("/health")
 async def health() -> dict:
-    info: dict[str, Any] = {"ok": True, "service": "sair-backend", "version": app.version}
+    info: dict[str, Any] = {
+        "ok": True,
+        "service": "sair-backend",
+        "version": app.version,
+        "uptime": monitoring.get_uptime_formatted(),
+        "requests_served": monitoring.get_total_requests(),
+    }
     try:
         await db.state.client.admin.command("ping")
         info["mongo"] = "ok"
@@ -302,8 +451,26 @@ async def health() -> dict:
     return info
 
 
+@app.get("/mets")
+async def root_mets(request: Request):
+    """Convenience alias for /admin/mets.
+    
+    If authenticated as an admin, redirects directly to /admin/mets.
+    Otherwise redirects to /admin/login.
+    """
+    if admin.auth.is_authenticated(request):
+        return RedirectResponse(url="/admin/mets", status_code=302)
+    return RedirectResponse(url="/admin/login", status_code=302)
+
+
 @app.post("/score", response_model=ScoreResponse)
 async def score(req: ScoreRequest, participant: dict = Depends(current_participant)) -> ScoreResponse:
+    if participant.get("blocked"):
+        raise HTTPException(
+            status_code=403,
+            detail="Participant is blocked",
+        )
+
     if len(req.text) < _min_text_length():
         raise HTTPException(
             status_code=400,
@@ -381,6 +548,8 @@ async def add_observations(
     records: list[ObservationIn] | ObservationIn,
     participant: dict = Depends(current_participant),
 ) -> dict:
+    if participant.get("blocked"):
+        raise HTTPException(status_code=403, detail="Participant is blocked")
     items = records if isinstance(records, list) else [records]
     if not items:
         return {"inserted": 0}
@@ -428,6 +597,8 @@ async def record_dwell(
     payload: DwellIn,
     participant: dict = Depends(current_participant),
 ) -> dict:
+    if participant.get("blocked"):
+        raise HTTPException(status_code=403, detail="Participant is blocked")
     """Record participant dwell time on posts.
 
     Logs granular dwell chunks/episodes into `dwell_logs` and atomically
@@ -522,6 +693,8 @@ async def add_interaction(
     record: InteractionIn,
     participant: dict = Depends(current_participant),
 ) -> dict:
+    if participant.get("blocked"):
+        raise HTTPException(status_code=403, detail="Participant is blocked")
     """Append-only event log of participant click intents on Like / Comment /
     Repost / Send buttons. No rate limiting yet — interaction volume is much
     lower than observation volume in practice. One row per click event; we

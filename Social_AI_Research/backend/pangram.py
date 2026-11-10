@@ -1,7 +1,12 @@
 import asyncio
+import logging
 import os
 
 import httpx
+
+# Silence verbose outgoing HTTP request logs from httpx/httpcore
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 DEFAULT_URL = "https://text.api.pangram.com/v3"

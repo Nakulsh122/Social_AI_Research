@@ -8,42 +8,83 @@
     <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
     All participants
   </a>
-  <button onclick="window.location.reload()" type="button"
-          class="inline-flex items-center gap-1.5 px-3 py-1 rounded-md border border-zinc-800 bg-zinc-900/60 hover:border-zinc-700 hover:text-white text-xs font-medium text-zinc-300 transition-colors">
-    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-    Refresh
-  </button>
+  <div class="flex items-center gap-2">
+    <button onclick="openEditModal('{{ p.participantId }}', '{{ p.externalId or '' }}', '{{ p.group }}', {{ p.cohort }}, '{{ p.role }}', '{{ p.timezone }}', {{ 'true' if p.active is not defined or p.active else 'false' }}, {{ 'true' if p.blocked else 'false' }})" type="button"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-800 bg-zinc-900/60 hover:border-zinc-700 hover:text-white text-xs font-medium text-zinc-300 transition-colors">
+      <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      Edit (COD_DOC)
+    </button>
+    <button onclick="openDeleteModal('{{ p.participantId }}', '{{ p.externalId or '' }}')" type="button"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-950/80 bg-red-950/30 hover:border-red-800 hover:text-red-300 text-xs font-medium text-red-400 transition-colors">
+      <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+      Delete (COD_DOC)
+    </button>
+    <button onclick="window.location.reload()" type="button"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-800 bg-zinc-900/60 hover:border-zinc-700 hover:text-white text-xs font-medium text-zinc-300 transition-colors">
+      <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      Refresh
+    </button>
+  </div>
 </div>
+
+{% if p.blocked %}
+<div class="mb-6 p-4 rounded-xl border border-red-800/80 bg-red-950/40 text-red-200 text-xs font-medium flex items-center justify-between shadow-sm">
+  <div class="flex items-center gap-2.5">
+    <span class="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse"></span>
+    <div>
+      <span class="font-bold text-red-300">REQUESTS BLOCKED:</span>
+      This participant is permanently blocked. Requests to <code class="font-mono text-red-300">/score</code> return HTTP 403 and are never forwarded to Pangram AI.
+      {% if p.blockedReason %}<span class="text-zinc-400 block mt-0.5">Reason: {{ p.blockedReason }}</span>{% endif %}
+    </div>
+  </div>
+  <a href="/admin/blocklist?q={{ p.participantId }}" class="px-3 py-1.5 rounded-lg bg-red-900/60 hover:bg-red-800 text-red-200 text-xs font-semibold shrink-0">
+    View in Blocklist
+  </a>
+</div>
+{% endif %}
 
 <div class="mb-8">
   <div class="flex flex-col md:flex-row md:items-center justify-between gap-2">
-    <h1 class="text-2xl font-bold tracking-tight font-mono">{{ p.participantId }}</h1>
+    <div class="flex items-center gap-3">
+      <h1 class="text-2xl font-bold tracking-tight font-mono">{{ p.participantId }}</h1>
+      {% if p.blocked %}
+        <span class="inline-flex px-2 py-0.5 rounded text-[11px] font-mono bg-red-950/80 text-red-300 border border-red-800/60 font-bold uppercase tracking-wider">
+          Blocked
+        </span>
+      {% endif %}
+    </div>
     <div class="flex items-center gap-2">
       <span class="text-xs text-zinc-400">Compliance Status:</span>
       <span class="inline-flex px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider border {{ p.compliance.badgeClass }}">
-        {{ p.compliance.statusLabel }} ({{ p.compliance.complianceRatio }} days)
+        {{ p.compliance.statusLabel }}
       </span>
     </div>
   </div>
   <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500 mt-2">
     <span><span class="text-zinc-600">External ID</span> <span class="text-zinc-300">{{ p.externalId or '—' }}</span></span>
+    <span><span class="text-zinc-600">Cohort</span> <span class="inline-flex px-1.5 py-0.2 rounded bg-purple-950/40 text-purple-300 border border-purple-800/40 font-mono font-semibold">Cohort {{ p.cohort }}</span></span>
     <span><span class="text-zinc-600">Role</span> <span class="text-zinc-300">{{ p.role }}</span></span>
     <span><span class="text-zinc-600">Group</span> <span class="text-zinc-300 capitalize">{{ p.group }}</span></span>
     <span><span class="text-zinc-600">Timezone</span> <span class="text-zinc-300 font-mono">{{ p.timezone }}</span></span>
     <span><span class="text-zinc-600">Active</span> <span class="text-zinc-300">{{ 'yes' if p.active else 'no' }}</span></span>
-    <span><span class="text-zinc-600">Registered</span> <span class="text-zinc-300">{{ p.createdAt.strftime('%b %d, %Y · %H:%M') if p.createdAt else '—' }}</span></span>
+    <span><span class="text-zinc-600">Registered</span> <span class="text-zinc-300">{{ p.createdAt.strftime('%b %d, %Y · %H:%M') if p.createdAt else '—' }} UTC</span></span>
+    {% if p.enrolledAt and p.enrolledAt != p.createdAt %}
+      <span><span class="text-zinc-600">Enrolled</span> <span class="text-zinc-300">{{ p.enrolledAt.strftime('%b %d, %Y · %H:%M') }}</span></span>
+    {% endif %}
   </div>
 </div>
 
-{# ───────── 7-Day Study Compliance Matrix ───────── #}
+{# ───────── Daily Activity & Compliance Matrix ───────── #}
 <div class="rounded-xl border border-zinc-800/80 bg-zinc-900/50 overflow-hidden mb-6">
-  <div class="flex items-baseline justify-between px-5 py-4 border-b border-zinc-800">
+  <div class="flex flex-col sm:flex-row sm:items-baseline justify-between px-5 py-4 border-b border-zinc-800 gap-2">
     <div>
-      <h2 class="text-sm font-semibold tracking-tight">7-Day Active Days Compliance</h2>
-      <p class="text-xs text-zinc-500 mt-0.5">Requirement: at least 10 minutes of active activity per day for at least 5 days out of 7 (evaluated in {{ p.timezone }}).</p>
+      <h2 class="text-sm font-semibold tracking-tight">Daily Activity & 7-Day Compliance Matrix</h2>
+      <p class="text-xs text-zinc-500 mt-0.5">Continuous daily activity tracking (Local Timezone: {{ p.compliance.timezone }}). Milestone requirement: ≥10 min/day on 5/7 initial study days.</p>
     </div>
-    <div class="font-mono text-xs text-zinc-400">
-      Target: <span class="font-bold text-zinc-200">5 / 7 Days</span> (Achieved: <span class="font-bold text-zinc-100">{{ p.compliance.qualifyingDays }}</span>)
+    <div class="flex items-center gap-3 font-mono text-xs text-zinc-400">
+      <span>Progress: <span class="font-bold text-zinc-100">{{ p.compliance.qualifyingDays }} / 5 days met</span></span>
+      <span>•</span>
+      <span>Study Duration: <span class="font-bold text-zinc-100">{{ p.compliance.daysElapsed }}d elapsed</span></span>
     </div>
   </div>
   <div class="overflow-x-auto scrollbar-thin">
@@ -63,6 +104,7 @@
         <tr class="hover:bg-zinc-800/30 transition-colors {% if day.isToday %}bg-zinc-800/20{% endif %}">
           <td class="px-5 py-3 font-semibold text-xs text-zinc-200">
             Day {{ day.day }}
+            {% if day.isFirst7Days %}<span class="ml-1 inline-block text-[9px] uppercase px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-400 font-medium">W1</span>{% endif %}
             {% if day.isToday %}<span class="ml-1.5 inline-block text-[9px] uppercase px-1.5 py-0.2 rounded bg-rutgers/20 text-rutgers-light font-bold">Today</span>{% endif %}
           </td>
           <td class="px-5 py-3 text-xs text-zinc-400 font-mono">{{ day.date }}</td>
@@ -245,5 +287,286 @@
     </table>
   </div>
 </div>
+
+{# ──────────────── EDIT PARTICIPANT MODAL ──────────────── #}
+<div id="edit-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+  <div class="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+    <div class="flex items-center justify-between px-6 py-4 border-b border-zinc-800 bg-zinc-900/80">
+      <div>
+        <h3 class="text-base font-semibold text-white">Modify Participant</h3>
+        <p id="edit-modal-sub" class="text-xs text-zinc-400 font-mono mt-0.5"></p>
+      </div>
+      <button onclick="closeEditModal()" class="text-zinc-500 hover:text-zinc-200 text-lg">✕</button>
+    </div>
+
+    <form id="edit-form" onsubmit="handleEditSubmit(event)" class="p-6 space-y-4">
+      <input type="hidden" id="edit-pid" />
+
+      <div>
+        <label class="block text-xs font-medium text-zinc-400 mb-1">External / Prolific ID</label>
+        <input type="text" id="edit-extid"
+               class="w-full px-3 py-2 text-xs bg-zinc-950 border border-zinc-800 rounded-lg text-white font-mono focus:outline-none focus:border-rutgers"
+               placeholder="e.g. 638a66471585cb7583285740" />
+      </div>
+
+      <div class="grid grid-cols-3 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-zinc-400 mb-1">Study Group</label>
+          <select id="edit-group" class="w-full px-3 py-2 text-xs bg-zinc-950 border border-zinc-800 rounded-lg text-white focus:outline-none focus:border-rutgers">
+            <option value="control">Control</option>
+            <option value="treatment">Treatment</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-zinc-400 mb-1">Cohort / Round</label>
+          <select id="edit-cohort" class="w-full px-3 py-2 text-xs bg-zinc-950 border border-zinc-800 rounded-lg text-white focus:outline-none focus:border-rutgers">
+            {% for c_opt in [1, 2, 3, 4, 5, 6] %}
+              <option value="{{ c_opt }}">Cohort {{ c_opt }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-zinc-400 mb-1">Role</label>
+          <select id="edit-role" class="w-full px-3 py-2 text-xs bg-zinc-950 border border-zinc-800 rounded-lg text-white focus:outline-none focus:border-rutgers">
+            <option value="participant">Participant</option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-zinc-400 mb-1">Timezone</label>
+          <input type="text" id="edit-tz"
+                 class="w-full px-3 py-2 text-xs bg-zinc-950 border border-zinc-800 rounded-lg text-white font-mono focus:outline-none focus:border-rutgers"
+                 placeholder="America/New_York" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-zinc-400 mb-1">Status</label>
+          <select id="edit-active" class="w-full px-3 py-2 text-xs bg-zinc-950 border border-zinc-800 rounded-lg text-white focus:outline-none focus:border-rutgers">
+            <option value="true">Active</option>
+            <option value="false">Inactive</option>
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold text-red-300 mb-1">Request Blocking (Pangram)</label>
+        <select id="edit-blocked" class="w-full px-3 py-2 text-xs bg-zinc-950 border border-zinc-800 rounded-lg text-white focus:outline-none focus:border-red-500">
+          <option value="false">Not Blocked (Normal Operation)</option>
+          <option value="true">⛔ Blocked (Block requests & never forward to Pangram)</option>
+        </select>
+      </div>
+
+      {# Security Confirmation Secret Requirement #}
+      <div class="p-3.5 bg-red-950/30 border border-red-800/60 rounded-xl space-y-1.5">
+        <label class="block text-xs font-bold text-red-300">
+          Authorization Secret Required:
+        </label>
+        <p class="text-[11px] text-zinc-400">
+          To save changes, you must enter the secret passkey: <span class="font-mono font-bold text-red-400 select-all bg-red-900/40 px-1.5 py-0.5 rounded">COD_DOC</span>
+        </p>
+        <input type="text" id="edit-secret" required placeholder="Type COD_DOC to confirm"
+               class="w-full px-3 py-2 text-xs bg-zinc-950 border border-red-800/80 rounded-lg text-red-200 placeholder-zinc-600 font-mono font-bold tracking-wider focus:outline-none focus:border-red-500" />
+      </div>
+
+      <div id="edit-error" class="hidden text-xs text-red-400 bg-red-950/40 border border-red-800/50 p-2.5 rounded-lg"></div>
+
+      <div class="flex items-center justify-end gap-2.5 pt-2">
+        <button type="button" onclick="closeEditModal()"
+                class="px-4 py-2 text-xs font-medium text-zinc-400 hover:text-white rounded-lg border border-zinc-800 hover:bg-zinc-800 transition-colors">
+          Cancel
+        </button>
+        <button type="submit" id="edit-submit-btn"
+                class="px-4 py-2 text-xs font-semibold text-white bg-rutgers hover:bg-rutgers-light rounded-lg shadow-sm transition-colors">
+          Save Changes
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ──────────────── DELETE PARTICIPANT MODAL ──────────────── #}
+<div id="delete-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+  <div class="w-full max-w-md bg-zinc-900 border border-red-900/60 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+    <div class="flex items-center justify-between px-6 py-4 border-b border-zinc-800 bg-red-950/20">
+      <div class="flex items-center gap-2">
+        <div class="w-7 h-7 rounded-lg bg-red-900/50 flex items-center justify-center text-red-400">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        </div>
+        <h3 class="text-base font-semibold text-white">Delete Participant</h3>
+      </div>
+      <button onclick="closeDeleteModal()" class="text-zinc-500 hover:text-zinc-200 text-lg">✕</button>
+    </div>
+
+    <form id="delete-form" onsubmit="handleDeleteSubmit(event)" class="p-6 space-y-4">
+      <input type="hidden" id="delete-pid" />
+
+      <p class="text-xs text-zinc-300">
+        Are you sure you want to delete participant <span id="delete-modal-pid" class="font-mono font-bold text-white"></span>?
+        This action is immediate and cannot be reversed.
+      </p>
+
+      <div class="flex items-start gap-2 p-3 bg-zinc-950 border border-zinc-800 rounded-lg">
+        <input type="checkbox" id="delete-cascade" checked class="mt-0.5 rounded border-zinc-700 text-rutgers focus:ring-rutgers" />
+        <label for="delete-cascade" class="text-xs text-zinc-400 cursor-pointer">
+          <span class="font-medium text-zinc-200">Cascade delete all activity:</span> Also purge all recorded observations, dwell logs, and interaction logs for this user.
+        </label>
+      </div>
+
+      {# Security Confirmation Secret Requirement #}
+      <div class="p-3.5 bg-red-950/40 border border-red-800/80 rounded-xl space-y-1.5">
+        <label class="block text-xs font-bold text-red-300">
+          Security Secret Required to Delete:
+        </label>
+        <p class="text-[11px] text-zinc-400">
+          Enter <span class="font-mono font-bold text-red-400 select-all bg-red-900/40 px-1.5 py-0.5 rounded">COD_DOC</span> to confirm deletion:
+        </p>
+        <input type="text" id="delete-secret" required placeholder="Type COD_DOC"
+               class="w-full px-3 py-2 text-xs bg-zinc-950 border border-red-800/80 rounded-lg text-red-200 placeholder-zinc-600 font-mono font-bold tracking-wider focus:outline-none focus:border-red-500" />
+      </div>
+
+      <div id="delete-error" class="hidden text-xs text-red-400 bg-red-950/40 border border-red-800/50 p-2.5 rounded-lg"></div>
+
+      <div class="flex items-center justify-end gap-2.5 pt-2">
+        <button type="button" onclick="closeDeleteModal()"
+                class="px-4 py-2 text-xs font-medium text-zinc-400 hover:text-white rounded-lg border border-zinc-800 hover:bg-zinc-800 transition-colors">
+          Cancel
+        </button>
+        <button type="submit" id="delete-submit-btn"
+                class="px-4 py-2 text-xs font-semibold text-white bg-red-700 hover:bg-red-600 rounded-lg shadow-sm transition-colors">
+          Delete Participant
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openEditModal(pid, extId, group, cohort, role, tz, active, blocked) {
+  document.getElementById('edit-pid').value = pid;
+  document.getElementById('edit-modal-sub').textContent = pid;
+  document.getElementById('edit-extid').value = extId || '';
+  document.getElementById('edit-group').value = group || 'control';
+  document.getElementById('edit-cohort').value = cohort ? String(cohort) : '1';
+  document.getElementById('edit-role').value = role || 'participant';
+  document.getElementById('edit-tz').value = tz || 'America/New_York';
+  document.getElementById('edit-active').value = active ? 'true' : 'false';
+  document.getElementById('edit-blocked').value = (blocked === true || blocked === 'true') ? 'true' : 'false';
+  document.getElementById('edit-secret').value = '';
+  document.getElementById('edit-error').classList.add('hidden');
+  document.getElementById('edit-modal').classList.remove('hidden');
+  setTimeout(() => document.getElementById('edit-secret').focus(), 50);
+}
+
+function closeEditModal() {
+  document.getElementById('edit-modal').classList.add('hidden');
+}
+
+async function handleEditSubmit(e) {
+  e.preventDefault();
+  const pid = document.getElementById('edit-pid').value;
+  const secret = document.getElementById('edit-secret').value.trim();
+  const errBox = document.getElementById('edit-error');
+  const btn = document.getElementById('edit-submit-btn');
+
+  errBox.classList.add('hidden');
+
+  if (secret !== 'COD_DOC') {
+    errBox.textContent = 'Incorrect secret passkey. You must enter "COD_DOC" to confirm.';
+    errBox.classList.remove('hidden');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+
+  const payload = {
+    secret: secret,
+    externalId: document.getElementById('edit-extid').value.trim() || null,
+    group: document.getElementById('edit-group').value,
+    cohort: parseInt(document.getElementById('edit-cohort').value, 10) || 1,
+    role: document.getElementById('edit-role').value,
+    timezone: document.getElementById('edit-tz').value.trim() || 'America/New_York',
+    active: document.getElementById('edit-active').value === 'true',
+    blocked: document.getElementById('edit-blocked').value === 'true',
+  };
+
+  try {
+    const res = await fetch(`/admin/participants/${encodeURIComponent(pid)}/edit`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || data.detail || `Server error (${res.status})`);
+    }
+    window.location.reload();
+  } catch (err) {
+    errBox.textContent = err.message || 'Failed to update participant';
+    errBox.classList.remove('hidden');
+    btn.disabled = false;
+    btn.textContent = 'Save Changes';
+  }
+}
+
+function openDeleteModal(pid, extId) {
+  document.getElementById('delete-pid').value = pid;
+  document.getElementById('delete-modal-pid').textContent = extId ? `${pid} (${extId})` : pid;
+  document.getElementById('delete-secret').value = '';
+  document.getElementById('delete-error').classList.add('hidden');
+  document.getElementById('delete-modal').classList.remove('hidden');
+  setTimeout(() => document.getElementById('delete-secret').focus(), 50);
+}
+
+function closeDeleteModal() {
+  document.getElementById('delete-modal').classList.add('hidden');
+}
+
+async function handleDeleteSubmit(e) {
+  e.preventDefault();
+  const pid = document.getElementById('delete-pid').value;
+  const secret = document.getElementById('delete-secret').value.trim();
+  const cascade = document.getElementById('delete-cascade').checked;
+  const errBox = document.getElementById('delete-error');
+  const btn = document.getElementById('delete-submit-btn');
+
+  errBox.classList.add('hidden');
+
+  if (secret !== 'COD_DOC') {
+    errBox.textContent = 'Incorrect secret passkey. You must enter "COD_DOC" to confirm deletion.';
+    errBox.classList.remove('hidden');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Deleting…';
+
+  try {
+    const res = await fetch(`/admin/participants/${encodeURIComponent(pid)}/delete`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify({ secret, cascade }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || data.detail || `Server error (${res.status})`);
+    }
+    window.location.href = '/admin/participants?deleted=1';
+  } catch (err) {
+    errBox.textContent = err.message || 'Failed to delete participant';
+    errBox.classList.remove('hidden');
+    btn.disabled = false;
+    btn.textContent = 'Delete Participant';
+  }
+}
+</script>
 
 {% endblock %}

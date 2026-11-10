@@ -1,0 +1,261 @@
+{% extends "base.html" %}
+{% block title %}Participant Blocklist — SAIR Admin{% endblock %}
+
+{% block content %}
+
+{# ───────── Alerts / Notifications ───────── #}
+{% if msg %}
+<div id="flash-banner-success" class="mb-5 p-3.5 rounded-lg border border-emerald-800/60 bg-emerald-950/40 text-emerald-200 text-xs font-medium flex items-center justify-between shadow-sm">
+  <div class="flex items-center gap-2">
+    <svg class="w-4 h-4 text-emerald-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+    <span>{{ msg }}</span>
+  </div>
+  <button onclick="document.getElementById('flash-banner-success').classList.add('hidden')" class="text-emerald-400 hover:text-white">✕</button>
+</div>
+{% endif %}
+
+{% if error %}
+<div id="flash-banner-error" class="mb-5 p-3.5 rounded-lg border border-red-800/60 bg-red-950/40 text-red-200 text-xs font-medium flex items-center justify-between shadow-sm">
+  <div class="flex items-center gap-2">
+    <svg class="w-4 h-4 text-red-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    <span>{{ error }}</span>
+  </div>
+  <button onclick="document.getElementById('flash-banner-error').classList.add('hidden')" class="text-red-400 hover:text-white">✕</button>
+</div>
+{% endif %}
+
+{# ───────── Header ───────── #}
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+  <div>
+    <div class="flex items-center gap-2.5">
+      <h1 class="text-2xl font-bold tracking-tight text-white">Participant Blocklist</h1>
+      <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-mono font-medium bg-red-950/80 text-red-300 border border-red-800/60">
+        {{ counts.total }} blocked
+      </span>
+    </div>
+    <p class="text-xs text-zinc-400 mt-1">
+      Permanently block participants by Prolific ID or Mongo ID. All scoring requests return HTTP 403 and never hit Pangram AI.
+    </p>
+  </div>
+
+  <div class="flex items-center gap-2 shrink-0">
+    <a href="/admin/export/blocklist.csv"
+       class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-800 bg-zinc-900 hover:bg-zinc-800 hover:text-white text-xs font-medium text-zinc-300 transition-colors">
+      <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Export CSV
+    </a>
+
+    <a href="/admin/export/latest_zip"
+       class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-800 bg-zinc-900 hover:bg-zinc-800 hover:text-white text-xs font-medium text-zinc-300 transition-colors"
+       title="Download hourly exports.zip">
+      <svg class="w-3.5 h-3.5 text-zinc-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      exports.zip
+    </a>
+  </div>
+</div>
+
+{# ───────── Simple Add Card ───────── #}
+<div class="rounded-xl border border-zinc-800 bg-zinc-900/40 p-5 mb-6 shadow-sm">
+  <div class="flex items-center justify-between mb-3">
+    <span class="text-xs font-semibold text-zinc-200">Add Participants to Blocklist</span>
+    <span class="text-[11px] text-zinc-500">Supports Prolific IDs, Mongo ObjectIds, or participant IDs</span>
+  </div>
+
+  <form action="/admin/blocklist/add" method="post" enctype="multipart/form-data" class="space-y-3">
+    {# Main input: Textarea #}
+    <div>
+      <textarea name="identifiers_text" rows="3"
+                placeholder="Paste Prolific IDs or Mongo IDs here (one per line, comma, or space-separated)..."
+                class="w-full px-3 py-2 text-xs font-mono bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-red-500/80 transition-colors"></textarea>
+    </div>
+
+    {# Controls row: File upload + Reason + Secret + Submit button #}
+    <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+      {# File upload #}
+      <div class="md:col-span-4 flex items-center gap-2">
+        <label class="text-[11px] text-zinc-400 shrink-0">Or CSV:</label>
+        <input type="file" name="file" accept=".csv,.txt"
+               class="block w-full text-xs text-zinc-400 file:mr-2 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-[11px] file:font-medium file:bg-zinc-800 file:text-zinc-200 hover:file:bg-zinc-700 cursor-pointer" />
+      </div>
+
+      {# Reason #}
+      <div class="md:col-span-4">
+        <input type="text" name="reason" placeholder="Reason (e.g. Failed attention check)"
+               class="w-full px-3 py-1.5 text-xs bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-zinc-700 transition-colors" />
+      </div>
+
+      {# Secret #}
+      <div class="md:col-span-2 flex items-center gap-1.5">
+        <input type="password" name="secret" required value="{{ required_secret }}" placeholder="Secret"
+               title="Confirmation secret"
+               class="w-full px-2.5 py-1.5 text-xs font-mono bg-zinc-950 border border-zinc-800 rounded-lg text-zinc-300 text-center focus:outline-none focus:border-zinc-700" />
+      </div>
+
+      {# Submit #}
+      <div class="md:col-span-2">
+        <button type="submit"
+                class="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-medium text-xs transition-colors shadow-sm">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+          Block IDs
+        </button>
+      </div>
+    </div>
+  </form>
+</div>
+
+{# ───────── Search & Counter ───────── #}
+<div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-3">
+  <form method="get" action="/admin/blocklist" class="flex-1 max-w-sm flex items-center gap-2">
+    <div class="relative w-full">
+      <div class="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-zinc-500">
+        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      </div>
+      <input type="text" name="q" value="{{ q }}" placeholder="Search by ID or reason..."
+             class="w-full pl-8 pr-7 py-1.5 text-xs bg-zinc-900 border border-zinc-800 rounded-lg text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-red-500/80 transition-colors" />
+      {% if q %}
+        <a href="/admin/blocklist" class="absolute inset-y-0 right-0 pr-2.5 flex items-center text-zinc-500 hover:text-zinc-200">✕</a>
+      {% endif %}
+    </div>
+    <button type="submit" class="px-3 py-1.5 text-xs rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 transition-colors">
+      Search
+    </button>
+  </form>
+
+  <div class="text-xs text-zinc-400">
+    Showing <span class="font-semibold text-zinc-200">{{ ((page - 1) * page_size + 1) if total > 0 else 0 }}–{{ [page * page_size, total]|min }}</span> of <span class="font-semibold text-zinc-200">{{ total }}</span> participants
+  </div>
+</div>
+
+{# ───────── Table ───────── #}
+<div class="rounded-xl border border-zinc-800 bg-zinc-900/30 overflow-hidden shadow-sm">
+  <div class="overflow-x-auto">
+    <table class="w-full text-xs">
+      <thead class="bg-zinc-900/70 border-b border-zinc-800 text-zinc-500 uppercase text-[10px] tracking-wider font-semibold">
+        <tr>
+          <th class="px-4 py-2.5 text-left">Blocked Participant / Identifier</th>
+          <th class="px-4 py-2.5 text-left">Status</th>
+          <th class="px-4 py-2.5 text-left">Reason</th>
+          <th class="px-4 py-2.5 text-left">Date (UTC)</th>
+          <th class="px-4 py-2.5 text-center">Action</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-zinc-800/50">
+        {% if rows %}
+          {% for r in rows %}
+          <tr class="hover:bg-zinc-800/20 transition-colors">
+            {# 1. Identifier / Participant Info #}
+            <td class="px-4 py-2.5">
+              <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-red-500 shrink-0"></span>
+                <span class="font-mono font-semibold text-zinc-100">{{ r.displayIdentifier }}</span>
+              </div>
+              {% if r.participantId and r.participantId != r.displayIdentifier %}
+                <div class="text-[11px] text-zinc-500 font-mono mt-0.5 pl-4">
+                  Participant: <a href="/admin/participants/{{ r.participantId }}" class="hover:text-red-400 transition-colors">{{ r.participantId }}</a>
+                </div>
+              {% endif %}
+            </td>
+
+            {# 2. Status #}
+            <td class="px-4 py-2.5 whitespace-nowrap">
+              {% if r.isEnrolled %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono bg-zinc-800 text-zinc-300 border border-zinc-700">
+                  Enrolled
+                </span>
+              {% else %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono bg-amber-950/40 text-amber-300 border border-amber-800/50">
+                  Pending Enrollment
+                </span>
+              {% endif %}
+            </td>
+
+            {# 3. Reason #}
+            <td class="px-4 py-2.5 text-zinc-400">
+              {{ r.reason or 'Admin blocklist' }}
+            </td>
+
+            {# 4. Date #}
+            <td class="px-4 py-2.5 text-zinc-400 font-mono text-[11px] whitespace-nowrap">
+              {{ r.blockedAt.strftime('%Y-%m-%d %H:%M') if r.blockedAt else '—' }}
+            </td>
+
+            {# 5. Unblock #}
+            <td class="px-4 py-2.5 text-center whitespace-nowrap">
+              <button onclick="openUnblockModal('{{ r.identifier }}')" type="button"
+                      class="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white text-[11px] font-medium border border-zinc-700 transition-colors">
+                Unblock
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="5" class="px-4 py-8 text-center text-zinc-500">
+              No blocked participants found{% if q %} matching "{{ q }}"{% endif %}.
+            </td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ───────── Pagination ───────── #}
+{% if total_pages > 1 %}
+<div class="flex items-center justify-between mt-3 text-xs text-zinc-400">
+  <div>Page <span class="font-semibold text-zinc-200">{{ page }}</span> of <span class="font-semibold text-zinc-200">{{ total_pages }}</span></div>
+  <div class="flex items-center gap-1">
+    {% if page > 1 %}
+      <a href="/admin/blocklist?page={{ page - 1 }}{% if q %}&q={{ q }}{% endif %}"
+         class="px-2.5 py-1 rounded border border-zinc-800 bg-zinc-900 hover:text-white transition-colors">Previous</a>
+    {% endif %}
+    {% if page < total_pages %}
+      <a href="/admin/blocklist?page={{ page + 1 }}{% if q %}&q={{ q }}{% endif %}"
+         class="px-2.5 py-1 rounded border border-zinc-800 bg-zinc-900 hover:text-white transition-colors">Next</a>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{# ───────── Unblock Modal ───────── #}
+<div id="unblock-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+  <div class="w-full max-w-sm rounded-xl border border-zinc-800 bg-zinc-900 p-5 shadow-2xl">
+    <div class="flex items-center justify-between mb-2">
+      <h3 class="text-sm font-semibold text-zinc-100">Unblock Participant</h3>
+      <button onclick="closeUnblockModal()" class="text-zinc-500 hover:text-white text-base">✕</button>
+    </div>
+    <p class="text-xs text-zinc-400 mb-4">
+      Unblock <span id="unblock-ident-display" class="font-mono font-bold text-zinc-200"></span>? They will be allowed to make study requests again.
+    </p>
+
+    <form action="/admin/blocklist/remove" method="post" class="space-y-3">
+      <input type="hidden" name="identifier" id="unblock-ident-input" />
+      <input type="hidden" name="secret" value="{{ required_secret }}" />
+
+      <div class="flex items-center justify-end gap-2 pt-2">
+        <button type="button" onclick="closeUnblockModal()"
+                class="px-3 py-1.5 rounded-lg border border-zinc-800 bg-zinc-800 text-zinc-300 hover:text-white text-xs">
+          Cancel
+        </button>
+        <button type="submit"
+                class="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white font-medium text-xs">
+          Confirm Unblock
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  function openUnblockModal(identifier) {
+    document.getElementById('unblock-ident-display').textContent = identifier;
+    document.getElementById('unblock-ident-input').value = identifier;
+    document.getElementById('unblock-modal').classList.remove('hidden');
+  }
+
+  function closeUnblockModal() {
+    document.getElementById('unblock-modal').classList.add('hidden');
+  }
+</script>
+
+{% endblock %}

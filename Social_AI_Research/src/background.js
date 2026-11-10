@@ -258,11 +258,16 @@ async function ensureToken() {
     const clientTz = (typeof Intl !== 'undefined' && Intl.DateTimeFormat)
       ? Intl.DateTimeFormat().resolvedOptions().timeZone
       : 'America/New_York';
-    const res = await fetch(backendUrl() + '/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ externalId, timezone: clientTz }),
-    });
+    let res;
+    try {
+      res = await fetch(backendUrl() + '/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ externalId, timezone: clientTz }),
+      });
+    } catch (netErr) {
+      throw new Error(`Failed to reach research server at ${backendUrl()}: ${netErr?.message || netErr}`);
+    }
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       throw new Error(`/register ${res.status}: ${body.slice(0, 200)}`);

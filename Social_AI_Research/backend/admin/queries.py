@@ -5,9 +5,11 @@ trivially testable and don't reach into the global state from the regular
 backend module.
 """
 
+import os
 import zoneinfo
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from bson import ObjectId
 
 
 # ─────────────────────────── Timezone helper ───────────────────────────
@@ -133,39 +135,45 @@ async def observations_per_day(db, days: int = 30) -> list[dict]:
     return out
 
 
-# ─────────────────────────── Participant 5/7 Days Compliance ───────────────────────────
+# ─────────────────────────── Participant Activity & Compliance ───────────────────────────
 
 async def participant_compliance_stats(db, participant: dict) -> dict[str, Any]:
-    """Calculate 5/7 active days compliance for a participant.
+    """Calculate daily activity and compliance metrics for a participant.
     
-    A participant must have at least 10 minutes of active activity per day for
-    at least 5 days out of 7, bucketed in their local US timezone.
+    All participant data is preserved continuously across all days. Days are
+    bucketed into the participant's local US timezone. Evaluates:
+    1. First 7-Day Compliance (target: at least 10 minutes active per day for 5/7 days).
+    2. Total Active Days across the entire participation duration.
     """
     pid = participant.get("participantId") or str(participant["_id"])
     tz_str = participant.get("timezone") or "America/New_York"
     tz = resolve_tz(tz_str)
 
-    # Determine registration date in local timezone
-    created_at = participant.get("createdAt")
-    if created_at:
-        if created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=timezone.utc)
-        created_local = created_at.astimezone(tz)
+    # Determine registration / join date in UTC and local timezone
+    # Prefer enrolledAt, then createdAt, or now
+    join_dt = participant.get("enrolledAt") or participant.get("createdAt")
+    if join_dt:
+        if join_dt.tzinfo is None:
+            join_dt = join_dt.replace(tzinfo=timezone.utc)
     else:
-        created_local = datetime.now(timezone.utc).astimezone(tz)
+        join_dt = datetime.now(timezone.utc)
 
-    start_date = created_local.date()
     now_local = datetime.now(timezone.utc).astimezone(tz)
     today_date = now_local.date()
 
-    # The 7 study calendar dates (Day 1 to Day 7)
-    study_dates = [start_date + timedelta(days=i) for i in range(7)]
+    # The official registration calendar date (as recorded in the database / Prolific in UTC)
+    reg_calendar_date = join_dt.astimezone(timezone.utc).date()
+    created_local_date = join_dt.astimezone(tz).date()
 
-    # Initialize aggregators
-    daily_dwell_ms: dict[str, int] = {d.strftime("%Y-%m-%d"): 0 for d in study_dates}
-    daily_interactions: dict[str, int] = {d.strftime("%Y-%m-%d"): 0 for d in study_dates}
+    # Use the official registration date; timezone offset must NEVER push
+    # the participant's start date back to a calendar day before they registered!
+    start_date = max(created_local_date, reg_calendar_date)
+    start_date = min(start_date, today_date)
 
-    # 1. Aggregate dwell time (active focal reading on posts)
+    daily_dwell_ms: dict[str, int] = {}
+    daily_interactions: dict[str, int] = {}
+
+    # 1. Aggregate all dwell logs across all time
     dwell_cursor = db.dwell_logs.find(
         {"userId": pid},
         projection={"dwellMs": 1, "recordedAt": 1, "occurredAt": 1}
@@ -184,7 +192,7 @@ async def participant_compliance_stats(db, participant: dict) -> dict[str, Any]:
 
         daily_dwell_ms[date_key] = daily_dwell_ms.get(date_key, 0) + doc.get("dwellMs", 0)
 
-    # 2. Aggregate active engagement clicks (likes, comments, reposts, send)
+    # 2. Aggregate all interactions across all time
     int_cursor = db.interactions.find(
         {"userId": pid},
         projection={"action": 1, "recordedAt": 1, "occurredAt": 1}
@@ -215,10 +223,32 @@ async def participant_compliance_stats(db, participant: dict) -> dict[str, Any]:
 
         daily_interactions[date_key] = daily_interactions.get(date_key, 0) + 1
 
-    # Build the 7-day breakdown matrix
+    start_date_str = start_date.strftime("%Y-%m-%d")
+
+    # If any activity occurred around registration that fell into a date before start_date
+    # due to timezone conversion, roll it into Day 1 (start_date) so no activity is lost
+    early_dwell = sum(v for k, v in daily_dwell_ms.items() if k < start_date_str)
+    if early_dwell > 0:
+        daily_dwell_ms[start_date_str] = daily_dwell_ms.get(start_date_str, 0) + early_dwell
+        for k in list(daily_dwell_ms.keys()):
+            if k < start_date_str:
+                del daily_dwell_ms[k]
+
+    early_ints = sum(v for k, v in daily_interactions.items() if k < start_date_str)
+    if early_ints > 0:
+        daily_interactions[start_date_str] = daily_interactions.get(start_date_str, 0) + early_ints
+        for k in list(daily_interactions.keys()):
+            if k < start_date_str:
+                del daily_interactions[k]
+
+    # Days elapsed strictly since the participant joined up to today
+    days_elapsed = max(1, (today_date - start_date).days + 1)
+    study_dates = [start_date + timedelta(days=i) for i in range(days_elapsed)]
+
+    # Build the multi-day breakdown matrix for all elapsed days
     matrix = []
-    qualifying_days_count = 0
-    days_elapsed = 0
+    first7_qualifying_count = 0
+    total_qualifying_count = 0
 
     for idx, d in enumerate(study_dates):
         key = d.strftime("%Y-%m-%d")
@@ -229,12 +259,13 @@ async def participant_compliance_stats(db, participant: dict) -> dict[str, Any]:
         # Qualification rule: at least 10 minutes (600,000 ms) of active time
         qualifies = ms >= 600000
         if qualifies:
-            qualifying_days_count += 1
+            total_qualifying_count += 1
 
-        is_future = d > today_date
         is_today = d == today_date
-        if not is_future:
-            days_elapsed += 1
+        is_first7 = idx < 7
+
+        if is_first7 and qualifies:
+            first7_qualifying_count += 1
 
         matrix.append({
             "day": idx + 1,
@@ -244,7 +275,8 @@ async def participant_compliance_stats(db, participant: dict) -> dict[str, Any]:
             "activeMinutes": mins,
             "interactions": ints,
             "qualifies": qualifies,
-            "isFuture": is_future,
+            "isFirst7Days": is_first7,
+            "isFuture": False,
             "isToday": is_today,
         })
 
@@ -252,36 +284,49 @@ async def participant_compliance_stats(db, participant: dict) -> dict[str, Any]:
     today_active_mins = round(daily_dwell_ms.get(today_key, 0) / 60000.0, 1)
     today_interactions = daily_interactions.get(today_key, 0)
 
-    # Compliance status evaluation (Target: >= 5 out of 7 days)
-    remaining_days = max(0, 7 - days_elapsed)
-    if qualifying_days_count >= 5:
+    # Compliance status evaluation:
+    # Target: 5 qualifying days in initial 7-day period
+    if first7_qualifying_count >= 5:
         status = "completed"
-        status_label = "Completed (5+/7)"
-        badge_class = "bg-human/15 text-human border-human/30"
-    elif qualifying_days_count + remaining_days < 5:
-        status = "incomplete"
-        status_label = "Incomplete (<5)"
-        badge_class = "bg-ai/15 text-ai border-ai/30"
-    elif days_elapsed > 0 and (qualifying_days_count / days_elapsed) >= (5.0 / 7.0):
-        status = "on_track"
-        status_label = "On Track"
-        badge_class = "bg-blue-500/15 text-blue-400 border-blue-500/30"
+        status_label = f"Completed ({first7_qualifying_count}/7)"
+        badge_class = "bg-emerald-950/60 text-emerald-300 border-emerald-600/50"
+    elif days_elapsed < 7:
+        # Participant is actively progressing within their 7-day window
+        if first7_qualifying_count >= 1 and (first7_qualifying_count / days_elapsed) >= 0.5:
+            status = "on_track"
+            status_label = f"Day {days_elapsed} of 7 · On Track"
+            badge_class = "bg-blue-950/50 text-blue-300 border-blue-700/40"
+        else:
+            status = "in_progress"
+            status_label = f"Day {days_elapsed} of 7"
+            badge_class = "bg-zinc-800 text-zinc-300 border-zinc-700"
     else:
-        status = "at_risk"
-        status_label = "At Risk"
-        badge_class = "bg-amber-500/15 text-amber-400 border-amber-500/30"
+        # Full 7+ days have elapsed without hitting 5 days
+        status = "incomplete"
+        status_label = f"Incomplete ({first7_qualifying_count}/7)"
+        badge_class = "bg-amber-950/50 text-amber-300 border-amber-800/40"
+
+    # Rolling 7-day window (last 7 calendar days up to today)
+    rolling_7_dates = [today_date - timedelta(days=i) for i in range(7)]
+    rolling_7_qualifying = sum(
+        1 for rd in rolling_7_dates if daily_dwell_ms.get(rd.strftime("%Y-%m-%d"), 0) >= 600000
+    )
 
     return {
         "timezone": tz_str,
-        "qualifyingDays": qualifying_days_count,
-        "totalStudyDays": 7,
-        "complianceRatio": f"{qualifying_days_count}/7",
+        "startDate": start_date.isoformat(),
+        "startDateFormatted": start_date.strftime("%b %d"),
+        "qualifyingDays": first7_qualifying_count,
+        "totalQualifyingDays": total_qualifying_count,
+        "daysElapsed": days_elapsed,
+        "totalStudyDays": days_elapsed,
+        "complianceRatio": f"{first7_qualifying_count}/5",
+        "rollingComplianceRatio": f"{rolling_7_qualifying}/7",
         "status": status,
         "statusLabel": status_label,
         "badgeClass": badge_class,
         "todayActiveMinutes": today_active_mins,
         "todayInteractions": today_interactions,
-        "daysElapsed": min(7, days_elapsed),
         "lastActiveAction": last_active_action,
         "lastActiveTime": last_active_time,
         "matrix": matrix,
@@ -341,11 +386,60 @@ async def recent_active_events(db, limit: int = 25) -> list[dict]:
 
 # ─────────────────────────── Participants ───────────────────────────
 
-async def list_participants(db, group: str | None = None, skip: int = 0, limit: int = 200) -> list[dict]:
-    """List participants with derived counts, dwell totals, and 5/7 compliance metrics."""
-    query = {}
+async def get_distinct_cohorts(db) -> list[int]:
+    """Get all distinct cohort numbers in the database, always including 1."""
+    cohorts = {1}
+    try:
+        vals = await db.participants.distinct("cohort")
+        for v in vals:
+            if v is not None:
+                try:
+                    cohorts.add(int(v))
+                except (ValueError, TypeError):
+                    pass
+    except Exception:
+        pass
+    env_c = os.environ.get("CURRENT_COHORT", os.environ.get("CURRENT_ROUND", "1"))
+    try:
+        cohorts.add(int(env_c))
+    except (ValueError, TypeError):
+        pass
+    return sorted(list(cohorts))
+
+
+async def list_participants(
+    db, group: str | None = None, cohort: int | None = None, status: str | None = None, search: str | None = None, skip: int = 0, limit: int = 200, **kwargs
+) -> list[dict]:
+    """List participants with derived counts, dwell totals, and compliance metrics."""
+    query: dict[str, Any] = {}
     if group:
         query["group"] = group
+    if status == "blocked":
+        query["blocked"] = True
+    elif status == "active":
+        query["$or"] = [{"blocked": False}, {"blocked": {"$exists": False}}]
+    if cohort is not None and str(cohort).strip() != "":
+        try:
+            c_int = int(cohort)
+            if c_int == 1:
+                query["$or"] = [{"cohort": 1}, {"cohort": {"$exists": False}}, {"round": 1}]
+            else:
+                query["$or"] = [{"cohort": c_int}, {"round": c_int}]
+        except (ValueError, TypeError):
+            pass
+    if search and str(search).strip():
+        s = str(search).strip()
+        import re
+        regex = {"$regex": re.escape(s), "$options": "i"}
+        search_filter = [
+            {"externalId": regex},
+            {"participantId": regex},
+            {"timezone": regex},
+        ]
+        if "$or" in query:
+            query = {"$and": [{"$or": query["$or"]}, {"$or": search_filter}]}
+        else:
+            query["$or"] = search_filter
 
     cursor = db.participants.find(query).sort("createdAt", -1).skip(skip).limit(limit)
     out = []
@@ -364,16 +458,23 @@ async def list_participants(db, group: str | None = None, skip: int = 0, limit: 
         total_p_dwell = dwell_res[0]["totalDwell"] if dwell_res else 0
         avg_p_dwell = round(total_p_dwell / obs_count) if obs_count > 0 else 0
 
-        # Calculate 5/7 active days compliance
+        # Calculate active days compliance
         compliance = await participant_compliance_stats(db, p)
 
+        c_val = p.get("cohort", p.get("round", 1))
         out.append({
             "participantId": pid,
             "externalId": p.get("externalId"),
             "role": p.get("role", "participant"),
             "group": p.get("group", "unknown"),
+            "cohort": int(c_val) if c_val is not None else 1,
             "timezone": p.get("timezone", "America/New_York"),
             "createdAt": p.get("createdAt"),
+            "enrolledAt": p.get("enrolledAt"),
+            "active": p.get("active", True),
+            "blocked": bool(p.get("blocked", False)),
+            "blockedAt": p.get("blockedAt"),
+            "blockedReason": p.get("blockedReason", ""),
             "observationCount": obs_count,
             "interactionCount": int_count,
             "totalDwellMs": total_p_dwell,
@@ -402,14 +503,20 @@ async def get_participant(db, participant_id: str) -> dict | None:
 
     compliance = await participant_compliance_stats(db, p)
 
+    c_val = p.get("cohort", p.get("round", 1))
     return {
         "participantId": p.get("participantId"),
         "externalId": p.get("externalId"),
         "role": p.get("role", "participant"),
         "group": p.get("group", "unknown"),
+        "cohort": int(c_val) if c_val is not None else 1,
         "timezone": p.get("timezone", "America/New_York"),
         "createdAt": p.get("createdAt"),
+        "enrolledAt": p.get("enrolledAt"),
         "active": p.get("active", True),
+        "blocked": bool(p.get("blocked", False)),
+        "blockedAt": p.get("blockedAt"),
+        "blockedReason": p.get("blockedReason", ""),
         "observationCount": obs_count,
         "interactionCount": int_count,
         "totalDwellMs": total_p_dwell,
@@ -418,6 +525,262 @@ async def get_participant(db, participant_id: str) -> dict | None:
         "avgDwellFormatted": format_dwell_ms(avg_p_dwell),
         "compliance": compliance,
     }
+
+
+async def update_participant(db, participant_id: str, updates: dict) -> bool:
+    """Update participant details (group, role, cohort, externalId, timezone, active, blocked)."""
+    allowed = {"group", "role", "cohort", "externalId", "timezone", "active", "blocked", "blockedReason", "blockedAt"}
+    set_fields = {k: v for k, v in updates.items() if k in allowed}
+    if "cohort" in set_fields:
+        try:
+            set_fields["cohort"] = int(set_fields["cohort"])
+        except (ValueError, TypeError):
+            pass
+    if not set_fields:
+        return False
+    res = await db.participants.update_one(
+        {"participantId": participant_id},
+        {"$set": set_fields}
+    )
+    return res.matched_count > 0
+
+
+async def block_identifiers(db, identifiers: list[str], reason: str = "") -> dict:
+    """Block participants by Prolific ID (externalId) or Mongo ID (_id/participantId).
+    
+    Guarantees that:
+    1. Any existing participant matching the identifier is permanently marked blocked.
+    2. Any identifier (even if not yet registered) is persistently recorded into the
+       `blocked_participants` collection so future requests/registrations are blocked.
+    """
+    now = datetime.now(timezone.utc)
+    cleaned = []
+    for raw in identifiers:
+        s = str(raw).strip().strip('"').strip("'").strip("\ufeff")
+        if s and s not in cleaned:
+            cleaned.append(s)
+
+    matched_pids = set()
+    new_blocked_entries = 0
+    details = []
+
+    for ident in cleaned:
+        clauses = [
+            {"externalId": ident},
+            {"participantId": ident},
+        ]
+        if len(ident) == 24:
+            try:
+                clauses.append({"_id": ObjectId(ident)})
+            except Exception:
+                pass
+
+        matched = await db.participants.find({"$or": clauses}).to_list(20)
+        is_hex24 = len(ident) == 24 and all(c in "0123456789abcdefABCDEF" for c in ident)
+        ident_type = "mongo_id" if is_hex24 else ("participant_id" if ident.startswith("u-") else "prolific_id")
+
+        if matched:
+            for p in matched:
+                pid = p.get("participantId") or str(p["_id"])
+                matched_pids.add(pid)
+                await db.participants.update_one(
+                    {"_id": p["_id"]},
+                    {"$set": {"blocked": True, "blockedAt": now, "blockedReason": reason or "Admin blocklist"}}
+                )
+                # Save into blocked_participants collection
+                await db.blocked_participants.update_one(
+                    {"identifier": ident},
+                    {"$set": {
+                        "identifier": ident,
+                        "identifierType": ident_type,
+                        "participantId": pid,
+                        "externalId": p.get("externalId"),
+                        "mongoId": str(p["_id"]),
+                        "reason": reason or "Admin blocklist",
+                        "blockedAt": now,
+                        "active": True
+                    }},
+                    upsert=True
+                )
+                # Also index their externalId if different
+                if p.get("externalId") and p["externalId"] != ident:
+                    await db.blocked_participants.update_one(
+                        {"identifier": p["externalId"]},
+                        {"$set": {
+                            "identifier": p["externalId"],
+                            "identifierType": "prolific_id",
+                            "participantId": pid,
+                            "externalId": p["externalId"],
+                            "mongoId": str(p["_id"]),
+                            "reason": reason or "Admin blocklist",
+                            "blockedAt": now,
+                            "active": True
+                        }},
+                        upsert=True
+                    )
+                # Also index their participantId if different
+                if pid and pid != ident:
+                    await db.blocked_participants.update_one(
+                        {"identifier": pid},
+                        {"$set": {
+                            "identifier": pid,
+                            "identifierType": "participant_id",
+                            "participantId": pid,
+                            "externalId": p.get("externalId"),
+                            "mongoId": str(p["_id"]),
+                            "reason": reason or "Admin blocklist",
+                            "blockedAt": now,
+                            "active": True
+                        }},
+                        upsert=True
+                    )
+                details.append({
+                    "identifier": ident,
+                    "participantId": pid,
+                    "externalId": p.get("externalId"),
+                    "status": "matched_and_blocked"
+                })
+        else:
+            # Not yet in participants table — save to persistent blocklist
+            await db.blocked_participants.update_one(
+                {"identifier": ident},
+                {"$set": {
+                    "identifier": ident,
+                    "identifierType": ident_type,
+                    "participantId": None,
+                    "externalId": ident if ident_type == "prolific_id" else None,
+                    "reason": reason or "Admin blocklist",
+                    "blockedAt": now,
+                    "active": True
+                }},
+                upsert=True
+            )
+            new_blocked_entries += 1
+            details.append({
+                "identifier": ident,
+                "participantId": None,
+                "status": "saved_to_blocklist"
+            })
+
+    return {
+        "total_parsed": len(identifiers),
+        "unique_identifiers": len(cleaned),
+        "matched_participants_count": len(matched_pids),
+        "new_blocklist_entries": new_blocked_entries,
+        "details": details,
+    }
+
+
+async def unblock_identifier(db, identifier: str) -> bool:
+    """Unblock a participant by identifier (Prolific ID, Mongo ID, or participantId)."""
+    s = str(identifier).strip()
+    clauses = [
+        {"externalId": s},
+        {"participantId": s},
+    ]
+    if len(s) == 24:
+        try:
+            clauses.append({"_id": ObjectId(s)})
+        except Exception:
+            pass
+
+    # Unset blocked on matching participants
+    p_res = await db.participants.update_many(
+        {"$or": clauses},
+        {"$set": {"blocked": False}, "$unset": {"blockedReason": "", "blockedAt": ""}}
+    )
+
+    # Remove from blocked_participants
+    b_res = await db.blocked_participants.delete_many({
+        "$or": [
+            {"identifier": s},
+            {"externalId": s},
+            {"participantId": s},
+            {"mongoId": s},
+        ]
+    })
+    return (p_res.modified_count > 0) or (b_res.deleted_count > 0)
+
+
+async def list_blocked(db, skip: int = 0, limit: int = 200, search: str | None = None) -> tuple[list[dict], int]:
+    """List distinct blocked entities (deduplicating multiple alias identifiers per participant)."""
+    q = {}
+    if search and search.strip():
+        import re
+        rgx = {"$regex": re.escape(search.strip()), "$options": "i"}
+        q = {"$or": [{"identifier": rgx}, {"participantId": rgx}, {"externalId": rgx}, {"reason": rgx}]}
+    cursor = db.blocked_participants.find(q).sort("blockedAt", -1)
+    
+    seen_entities = set()
+    out = []
+    async for doc in cursor:
+        pid = doc.get("participantId")
+        ext = doc.get("externalId")
+        ident = doc.get("identifier")
+        # Deduplication key: one row per distinct participant, or per distinct unenrolled identifier
+        entity_key = f"pid:{pid}" if pid else (f"ext:{ext}" if ext else f"id:{ident}")
+        if entity_key in seen_entities:
+            continue
+        seen_entities.add(entity_key)
+
+        primary_id = ext or ident or pid
+        out.append({
+            "identifier": ident,
+            "displayIdentifier": primary_id,
+            "identifierType": doc.get("identifierType", "unknown"),
+            "participantId": pid,
+            "externalId": ext,
+            "mongoId": doc.get("mongoId"),
+            "reason": doc.get("reason", "Admin blocklist"),
+            "blockedAt": doc.get("blockedAt"),
+            "isEnrolled": bool(pid),
+        })
+
+    total = len(out)
+    return out[skip : skip + limit], total
+
+
+async def count_blocked(db) -> dict:
+    """Get counts of distinct blocked participants and total pending entries."""
+    cursor = db.blocked_participants.find({})
+    seen = set()
+    enrolled_count = 0
+    unenrolled_count = 0
+    async for doc in cursor:
+        pid = doc.get("participantId")
+        ext = doc.get("externalId")
+        ident = doc.get("identifier")
+        entity_key = f"pid:{pid}" if pid else (f"ext:{ext}" if ext else f"id:{ident}")
+        if entity_key in seen:
+            continue
+        seen.add(entity_key)
+        if pid:
+            enrolled_count += 1
+        else:
+            unenrolled_count += 1
+
+    return {
+        "total": len(seen),
+        "enrolled": enrolled_count,
+        "unenrolled": unenrolled_count,
+        "total_blocklist_entries": len(seen),
+        "blocked_participants": enrolled_count,
+    }
+
+
+
+async def delete_participant(db, participant_id: str, cascade: bool = True) -> dict:
+    """Delete a participant, optionally cascading deletion to observations, dwell logs, and interactions."""
+    p_res = await db.participants.delete_one({"participantId": participant_id})
+    res: dict[str, Any] = {"participantDeleted": p_res.deleted_count > 0}
+    if cascade:
+        obs_res = await db.observations.delete_many({"userId": participant_id})
+        int_res = await db.interactions.delete_many({"userId": participant_id})
+        dwell_res = await db.dwell_logs.delete_many({"userId": participant_id})
+        res["observationsDeleted"] = obs_res.deleted_count
+        res["interactionsDeleted"] = int_res.deleted_count
+        res["dwellLogsDeleted"] = dwell_res.deleted_count
+    return res
 
 
 # ─────────────────────────── Observations / interactions browsers ───────────────────────────
